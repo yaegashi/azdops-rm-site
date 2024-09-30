@@ -79,32 +79,29 @@ module sharedRegistryAccess './core/security/registry-access.bicep' = {
 var dnsEnable = !empty(dnsZoneResourceGroupName) && !empty(dnsZoneName) && !empty(dnsRecordName)
 var appCustomDomainName = dnsEnable ? '${dnsRecordName}.${dnsZoneName}' : ''
 
-resource dnsZoneRG 'Microsoft.Resources/resourceGroups@2021-04-01' existing =
-  if (dnsEnable && !appCertificateExists) {
-    name: dnsZoneResourceGroupName
-  }
+resource dnsZoneRG 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (dnsEnable && !appCertificateExists) {
+  name: dnsZoneResourceGroupName
+}
 
-module dnsTXT './app/dns-txt.bicep' =
-  if (dnsEnable && !appCertificateExists) {
-    name: 'dnsTXT'
-    scope: dnsZoneRG
-    params: {
-      dnsZoneName: dnsZoneName
-      dnsRecordName: 'asuid.${dnsRecordName}'
-      txt: env.outputs.customDomainVerificationId
-    }
+module dnsTXT './app/dns-txt.bicep' = if (dnsEnable && !appCertificateExists) {
+  name: 'dnsTXT'
+  scope: dnsZoneRG
+  params: {
+    dnsZoneName: dnsZoneName
+    dnsRecordName: 'asuid.${dnsRecordName}'
+    txt: env.outputs.customDomainVerificationId
   }
+}
 
-module dnsCNAME './app/dns-cname.bicep' =
-  if (dnsEnable && !appCertificateExists) {
-    name: 'dnsCNAME'
-    scope: dnsZoneRG
-    params: {
-      dnsZoneName: dnsZoneName
-      dnsRecordName: dnsRecordName
-      cname: appPrep.outputs.fqdn
-    }
+module dnsCNAME './app/dns-cname.bicep' = if (dnsEnable && !appCertificateExists) {
+  name: 'dnsCNAME'
+  scope: dnsZoneRG
+  params: {
+    dnsZoneName: dnsZoneName
+    dnsRecordName: dnsRecordName
+    cname: appPrep.outputs.fqdn
   }
+}
 
 resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   name: !empty(resourceGroupName) ? resourceGroupName : '${abbrs.resourcesResourceGroups}${environmentName}'
@@ -239,19 +236,18 @@ module env './app/env.bicep' = {
   }
 }
 
-module appPrep './app/app-prep.bicep' =
-  if (dnsEnable && !appCertificateExists) {
-    dependsOn: [dnsTXT]
-    name: 'appPrep'
-    scope: rg
-    params: {
-      location: location
-      tags: tags
-      containerAppsEnvironmentName: env.outputs.name
-      containerAppName: xContainerAppName
-      appCustomDomainName: appCustomDomainName
-    }
+module appPrep './app/app-prep.bicep' = if (dnsEnable && !appCertificateExists) {
+  dependsOn: [dnsTXT]
+  name: 'appPrep'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    containerAppsEnvironmentName: env.outputs.name
+    containerAppName: xContainerAppName
+    appCustomDomainName: appCustomDomainName
   }
+}
 
 module app './app/app.bicep' = {
   dependsOn: [KeyVaultAccess, dnsCNAME]
