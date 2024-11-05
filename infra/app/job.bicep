@@ -2,9 +2,11 @@ param containerAppsEnvironmentName string
 param containerAppName string
 param location string
 param tags object = {}
-param containerRegistryLoginServer string
+param containerRegistryEndpoint string
+param containerRegistryUsername string
+param containerRegistryPasswordKV string
 param appImage string
-param kvDatabase string
+param databaseUrlKV string
 param userAssignedIdentityName string
 param tz string
 
@@ -19,7 +21,7 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-08-01-
   }
 }
 
-resource job 'Microsoft.App/jobs@2023-05-01' = {
+resource job 'Microsoft.App/jobs@2023-05-01' = if (!empty(appImage)) {
   name: '${containerAppName}-job'
   location: location
   tags: tags
@@ -36,14 +38,20 @@ resource job 'Microsoft.App/jobs@2023-05-01' = {
       triggerType: 'Manual'
       registries: [
         {
-          server: containerRegistryLoginServer
-          identity: userAssignedIdentity.id
+          server: containerRegistryEndpoint
+          username: containerRegistryUsername
+          passwordSecretRef: 'container-registry-password'
         }
       ]
       secrets: [
         {
+          name: 'container-registry-password'
+          keyVaultUrl: containerRegistryPasswordKV
+          identity: userAssignedIdentity.id
+        }
+        {
           name: 'database-url'
-          keyVaultUrl: kvDatabase
+          keyVaultUrl: databaseUrlKV
           identity: userAssignedIdentity.id
         }
       ]

@@ -20,6 +20,9 @@
     "appImage": {
       "value": "${APP_IMAGE}"
     },
+    "appCrPass": {
+      "value": "$(secretOrRandomPassword ${AZURE_KEY_VAULT_NAME} APP-CR-PASS)"
+    },
     "appDbPass": {
       "value": "$(secretOrRandomPassword ${AZURE_KEY_VAULT_NAME} APP-DB-PASS)"
     },
@@ -40,6 +43,15 @@
     },
     "dnsRecordName": {
       "value": "${DNS_RECORD_NAME}"
+    },
+    "msTenantId": {
+      "value": "${MS_TENANT_ID}"
+    },
+    "msClientId": {
+      "value": "${MS_CLIENT_ID}"
+    },
+    "msClientSecret": {
+      "value": "${MS_CLIENT_SECRET}"
     }
   }
 }

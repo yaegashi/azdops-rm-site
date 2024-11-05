@@ -3,15 +3,18 @@ param containerAppName string
 param location string = resourceGroup().location
 param tags object = {}
 param storageAccountName string
-param containerRegistryLoginServer string
+param containerRegistryEndpoint string
+param containerRegistryUsername string
+param containerRegistryPasswordKV string
 param appImage string
 param appRootPath string
 param appCustomDomainName string = ''
-param kvDatabase string
-param kvSecretKeyBase string
-param kvMsClientSecret string
+param databaseUrlKV string
+param secretKeyBaseKV string
 param msTenantId string
 param msClientId string
+@secure()
+param msClientSecret string
 param userAssignedIdentityName string
 param tz string
 
@@ -57,6 +60,94 @@ resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2023
   }
 }
 
+var containers0 = [
+  {
+    name: 'hello-world'
+    image: 'mcr.microsoft.com/azuredocs/aci-helloworld:latest'
+  }
+]
+
+var containers1 = [
+  {
+    name: 'redmine'
+    image: appImage
+    args: ['rails']
+    env: [
+      { name: 'TZ', value: tz }
+      { name: 'RAILS_ENV', value: 'production' }
+      { name: 'RAILS_RELATIVE_URL_ROOT', value: appRootPath }
+      { name: 'DATABASE_URL', secretRef: 'database-url' }
+      { name: 'SECRET_KEY_BASE', secretRef: 'secret-key-base' }
+    ]
+    probes: [
+      {
+        type: 'Startup'
+        httpGet: {
+          path: '/'
+          port: 8080
+          scheme: 'HTTP'
+        }
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 1
+        successThreshold: 1
+        failureThreshold: 30
+      }
+    ]
+    resources: {
+      cpu: json('0.25')
+      memory: '0.5Gi'
+    }
+    volumeMounts: [
+      {
+        volumeName: 'data'
+        subPath: 'wwwroot'
+        mountPath: '/home/site/wwwroot'
+      }
+    ]
+  }
+  {
+    name: 'sidekiq'
+    image: appImage
+    args: ['sidekiq']
+    env: [
+      { name: 'TZ', value: tz }
+      { name: 'RAILS_ENV', value: 'production' }
+      { name: 'DATABASE_URL', secretRef: 'database-url' }
+    ]
+    resources: {
+      cpu: json('0.25')
+      memory: '0.5Gi'
+    }
+    volumeMounts: [
+      {
+        volumeName: 'data'
+        subPath: 'wwwroot'
+        mountPath: '/home/site/wwwroot'
+      }
+    ]
+  }
+  {
+    name: 'redis'
+    image: 'redis'
+    args: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
+    env: [
+      { name: 'TZ', value: tz }
+    ]
+    resources: {
+      cpu: json('0.25')
+      memory: '0.5Gi'
+    }
+    volumeMounts: [
+      {
+        volumeName: 'data'
+        subPath: 'redis'
+        mountPath: '/data'
+      }
+    ]
+  }
+]
+
 resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
   name: containerAppName
   location: location
@@ -72,7 +163,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
     configuration: {
       ingress: {
         external: true
-        targetPort: 8080
+        targetPort: empty(appImage) ? 80: 8080
         customDomains: empty(appCustomDomainName)
           ? null
           : [
@@ -85,25 +176,30 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
       }
       registries: [
         {
-          server: containerRegistryLoginServer
-          identity: userAssignedIdentity.id
+          server: containerRegistryEndpoint
+          username: containerRegistryUsername
+          passwordSecretRef: 'container-registry-password'
         }
       ]
       secrets: [
         {
+          name: 'container-registry-password'
+          keyVaultUrl: containerRegistryPasswordKV
+          identity: userAssignedIdentity.id
+        }
+        {
           name: 'database-url'
-          keyVaultUrl: kvDatabase
+          keyVaultUrl: databaseUrlKV
           identity: userAssignedIdentity.id
         }
         {
           name: 'secret-key-base'
-          keyVaultUrl: kvSecretKeyBase
+          keyVaultUrl: secretKeyBaseKV
           identity: userAssignedIdentity.id
         }
         {
           name: 'microsoft-provider-authentication-secret'
-          keyVaultUrl: kvMsClientSecret
-          identity: userAssignedIdentity.id
+          value: msClientSecret
         }
         {
           name: 'token-store-url'
@@ -119,86 +215,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
           storageType: 'AzureFile'
         }
       ]
-      containers: [
-        {
-          name: 'redmine'
-          image: appImage
-          args: ['rails']
-          env: [
-            { name: 'TZ', value: tz }
-            { name: 'RAILS_ENV', value: 'production' }
-            { name: 'RAILS_RELATIVE_URL_ROOT', value: appRootPath }
-            { name: 'DATABASE_URL', secretRef: 'database-url' }
-            { name: 'SECRET_KEY_BASE', secretRef: 'secret-key-base' }
-          ]
-          probes: [
-            {
-              type: 'Startup'
-              httpGet: {
-                path: '/'
-                port: 8080
-                scheme: 'HTTP'
-              }
-              initialDelaySeconds: 10
-              periodSeconds: 10
-              timeoutSeconds: 1
-              successThreshold: 1
-              failureThreshold: 30
-            }
-          ]
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
-          volumeMounts: [
-            {
-              volumeName: 'data'
-              subPath: 'wwwroot'
-              mountPath: '/home/site/wwwroot'
-            }
-          ]
-        }
-        {
-          name: 'sidekiq'
-          image: appImage
-          args: ['sidekiq']
-          env: [
-            { name: 'TZ', value: tz }
-            { name: 'RAILS_ENV', value: 'production' }
-            { name: 'DATABASE_URL', secretRef: 'database-url' }
-          ]
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
-          volumeMounts: [
-            {
-              volumeName: 'data'
-              subPath: 'wwwroot'
-              mountPath: '/home/site/wwwroot'
-            }
-          ]
-        }
-        {
-          name: 'redis'
-          image: 'redis'
-          args: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
-          env: [
-            { name: 'TZ', value: tz }
-          ]
-          resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
-          }
-          volumeMounts: [
-            {
-              volumeName: 'data'
-              subPath: 'redis'
-              mountPath: '/data'
-            }
-          ]
-        }
-      ]
+      containers: empty(appImage) ? containers0 : containers1
       scale: {
         minReplicas: 1
         maxReplicas: 1

@@ -31,6 +31,8 @@ param containerAppsEnvironmentName string = ''
 
 param appImage string = ''
 @secure()
+param appCrPass string
+@secure()
 param appDbPass string
 @secure()
 param appSecretKeyBase string
@@ -48,6 +50,11 @@ param dnsZoneResourceGroupName string = ''
 param dnsZoneName string = ''
 
 param dnsRecordName string = ''
+
+param msTenantId string
+param msClientId string
+@secure()
+param msClientSecret string
 
 var abbrs = loadJsonContent('./abbreviations.json')
 
@@ -67,12 +74,13 @@ resource sharedKeyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: sharedRG.tags.KEY_VAULT_NAME
 }
 
-module sharedRegistryAccess './core/security/registry-access.bicep' = {
-  name: 'sharedRegistryAccess'
+module registryToken './app/registry-token.bicep' = {
   scope: sharedRG
+  name: 'registryScope'
   params: {
     containerRegistryName: sharedRG.tags.CONTAINER_REGISTRY_NAME
-    principalId: userAssignedIdentity.outputs.principalId
+    scopeMapName: xContainerAppName
+    scopeMapDescription: '${environmentName}/${xContainerAppName}'
   }
 }
 
@@ -116,7 +124,27 @@ module keyVault './core/security/keyvault.bicep' = {
     name: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
     location: location
     tags: tags
+  }
+}
+
+module keyVaultAccessDeployment './core/security/keyvault-access.bicep' = {
+  name: 'keyVaultAccessDeployment'
+  scope: rg
+  params: {
+    keyVaultName: keyVault.outputs.name
     principalId: principalId
+    permissions: { secrets: ['list', 'get', 'set'] }
+  }
+}
+
+module keyVaultSecretContainerRegistry './core/security/keyvault-secret.bicep' = {
+  name: 'keyVaultSecretAppCrPass'
+  scope: rg
+  params: {
+    name: 'APP-CR-PASS'
+    tags: tags
+    keyVaultName: keyVault.outputs.name
+    secretValue: appCrPass
   }
 }
 
@@ -135,7 +163,7 @@ module keyVaultSecretAppSecretKeyBase './core/security/keyvault-secret.bicep' = 
   name: 'keyVaultSecretAppSecretKeyBase'
   scope: rg
   params: {
-    name: 'APP-SECRET-KEY-BASE'
+    name: 'SECRET-KEY-BASE'
     tags: tags
     keyVaultName: keyVault.outputs.name
     secretValue: appSecretKeyBase
@@ -154,13 +182,11 @@ module keyVaultSecretMsClientSecret './core/security/keyvault-secret.bicep' = {
 }
 
 var xTZ = !empty(tz) ? tz : 'Asia/Tokyo'
-var xAppImage = !empty(appImage)
-  ? appImage
-  : '${sharedRG.tags.CONTAINER_REGISTRY_IMAGE}:${sharedRG.tags.CONTAINER_REGISTRY_TAG}'
 var xContainerAppsEnvironmentName = !empty(containerAppsEnvironmentName)
   ? containerAppsEnvironmentName
   : '${abbrs.appManagedEnvironments}${resourceToken}'
 var xContainerAppName = !empty(containerAppName) ? containerAppName : '${abbrs.appContainerApps}${resourceToken}'
+var appCrUser = xContainerAppName
 var appDbName = replace(xContainerAppName, '-', '_')
 var appDbUrl = format(sharedRG.tags.DB_URL_FORMAT, appDbName, appDbPass, appDbName)
 
@@ -168,7 +194,7 @@ module keyVaultSecretDatabaseUrl './core/security/keyvault-secret.bicep' = {
   name: 'keyVaultSecretDatabaseUrl'
   scope: rg
   params: {
-    name: 'APP-DB-URL'
+    name: 'DATABASE-URL'
     tags: tags
     keyVaultName: keyVault.outputs.name
     secretValue: appDbUrl
@@ -187,8 +213,8 @@ module userAssignedIdentity './app/identity.bicep' = {
   }
 }
 
-module KeyVaultAccess './core/security/keyvault-access.bicep' = {
-  name: 'KeyVaultAccess'
+module KeyVaultAccessUserAssignedIdentity './core/security/keyvault-access.bicep' = {
+  name: 'KeyVaultAccessUserAssignedIdentity'
   scope: rg
   params: {
     keyVaultName: keyVault.outputs.name
@@ -250,7 +276,7 @@ module appPrep './app/app-prep.bicep' = if (dnsEnable && !appCertificateExists) 
 }
 
 module app './app/app.bicep' = {
-  dependsOn: [KeyVaultAccess, dnsCNAME]
+  dependsOn: [KeyVaultAccessUserAssignedIdentity, dnsCNAME]
   name: 'app'
   scope: rg
   params: {
@@ -259,22 +285,24 @@ module app './app/app.bicep' = {
     containerAppsEnvironmentName: env.outputs.name
     containerAppName: xContainerAppName
     storageAccountName: storageAccount.outputs.name
-    containerRegistryLoginServer: sharedRG.tags.CONTAINER_REGISTRY_LOGIN_SERVER
+    containerRegistryEndpoint: sharedRG.tags.CONTAINER_REGISTRY_ENDPOINT
+    containerRegistryUsername: appCrUser
+    containerRegistryPasswordKV: '${keyVault.outputs.endpoint}secrets/APP-CR-PASS'
     userAssignedIdentityName: userAssignedIdentity.outputs.name
-    appImage: xAppImage
+    appImage: appImage
     appRootPath: appRootPath
     appCustomDomainName: appCustomDomainName
-    kvDatabase: '${keyVault.outputs.endpoint}secrets/APP-DB-URL'
-    kvSecretKeyBase: '${keyVault.outputs.endpoint}secrets/APP-SECRET-KEY-BASE'
-    kvMsClientSecret: '${keyVault.outputs.endpoint}secrets/MS-CLIENT-SECRET'
-    msTenantId: sharedRG.tags.MS_TENANT_ID
-    msClientId: sharedRG.tags.MS_CLIENT_ID
+    databaseUrlKV: '${keyVault.outputs.endpoint}secrets/DATABASE-URL'
+    secretKeyBaseKV: '${keyVault.outputs.endpoint}secrets/SECRET-KEY-BASE'
+    msTenantId: msTenantId
+    msClientId: msClientId
+    msClientSecret: msClientSecret
     tz: xTZ
   }
 }
 
 module job './app/job.bicep' = {
-  dependsOn: [KeyVaultAccess]
+  dependsOn: [KeyVaultAccessUserAssignedIdentity]
   name: 'job'
   scope: rg
   params: {
@@ -282,10 +310,12 @@ module job './app/job.bicep' = {
     tags: tags
     containerAppsEnvironmentName: env.outputs.name
     containerAppName: xContainerAppName
-    containerRegistryLoginServer: sharedRG.tags.CONTAINER_REGISTRY_LOGIN_SERVER
+    containerRegistryEndpoint: sharedRG.tags.CONTAINER_REGISTRY_ENDPOINT
+    containerRegistryUsername: appCrUser
+    containerRegistryPasswordKV: '${keyVault.outputs.endpoint}secrets/APP-CR-PASS'
     userAssignedIdentityName: userAssignedIdentity.outputs.name
-    appImage: xAppImage
-    kvDatabase: '${keyVault.outputs.endpoint}secrets/APP-DB-URL'
+    appImage: appImage
+    databaseUrlKV: '${keyVault.outputs.endpoint}secrets/DATABASE-URL'
     tz: xTZ
   }
 }
@@ -300,3 +330,7 @@ output AZURE_CONTAINER_APPS_JOB_NAME string = job.outputs.name
 output AZURE_STORAGE_ACCOUNT_NAME string = storageAccount.outputs.name
 output AZURE_LOG_ANALYTICS_WORKSPACE_CUSTOMER_ID string = monitoring.outputs.logAnalyticsWorkspaceCustomerId
 output APP_CERTIFICATE_EXISTS bool = !empty(appCustomDomainName)
+output SHARED_CONTAINER_REGISTRY_NAME string = sharedRG.tags.CONTAINER_REGISTRY_NAME
+output SHARED_CONTAINER_REGISTRY_ENDPOINT string = sharedRG.tags.CONTAINER_REGISTRY_ENDPOINT
+output SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME string = registryToken.outputs.scopeMapName
+output SHARED_CONTAINER_REGISTRY_TOKEN_NAME string = registryToken.outputs.tokenName

@@ -2,6 +2,11 @@
 
 set -e
 
+: ${RM_REPOSITORY=https://github.com/yaegashi/dx2devops-rm-docker}
+: ${RM_REF=main}
+: ${REDMINE_REPOSITORY=https://github.com/redmica/redmica}
+: ${REDMINE_REF=v3.0.3}
+
 NL=$'\n'
 QUIET=0
 
@@ -127,6 +132,29 @@ cmd_update_image() {
 	msg 'Done'
 }
 
+cmd_acr_token() {
+	msg 'Running Azure CLI...'
+	PASSWORD=$(az acr token create --subscription ${AZURE_SUBSCRIPTION_ID} --registry ${SHARED_CONTAINER_REGISTRY_NAME} --name ${SHARED_CONTAINER_REGISTRY_TOKEN_NAME} --scope-map ${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME} --query 'credentials.passwords[0].value' --output tsv)
+	az keyvault secret set --subscription ${AZURE_SUBSCRIPTION_ID} --vault-name ${AZURE_KEY_VAULT_NAME} --name APP-CR-PASS --value "${PASSWORD}" >/dev/null
+	msg 'Done'
+}
+
+cmd_acr_push() {
+	if ! test -d rm; then
+	    git clone $RM_REPOSITORY -b $RM_REF rm
+	fi
+	if ! test -d rm/redmine; then
+	    git clone $REDMINE_REPOSITORY -b $REDMINE_REF rm/redmine
+	fi
+	IMAGE=${SHARED_CONTAINER_REGISTRY_ENDPOINT}/${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME}
+	TAG=$(date --utc +%Y%m%dT%H%M%SZ)
+	APP_IMAGE="${IMAGE}:${TAG}"
+	az acr login --subscription ${AZURE_SUBSCRIPTION_ID} --name ${SHARED_CONTAINER_REGISTRY_NAME}
+	docker build rm -t ${APP_IMAGE}
+	docker push ${APP_IMAGE}
+	azd env set APP_IMAGE ${APP_IMAGE}
+}
+
 cmd_data_get() {
 	if test $# -lt 2; then
 		msg 'Specify remote/local paths'
@@ -207,6 +235,14 @@ case "$1" in
 		shift
 		cmd_update_image "$@"
 		;;
+	acr-token)
+		shift
+		cmd_acr_token "$@"
+		;;
+	acr-push)
+		shift
+		cmd_acr_push "$@"
+		;;
 	data-get|download)
 		shift
 		cmd_data_get "$@"
@@ -244,6 +280,8 @@ case "$1" in
 		msg "  rmops-passwd <login>      - Run rmops passwd <login> in container"
 		msg "  update-auth               - Update redirect URIs in ME-ID app"
 		msg "  update-image              - Update container image"
+		msg "  acr-token                 - Update ACR token"
+		msg "  acr-push                  - Build and push to ACR"
 		msg "  data-get <remote> <local> - Download file in data share"
 		msg "  data-put <remote> <local> - Upload file in data share"
 		msg "  show                      - Show app with Azure CLI"
