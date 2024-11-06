@@ -43,7 +43,7 @@ $ azd env set MS_CLIENT_ID yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
 $ azd env set MS_CLIENT_SECRET zzzzzzzz
 ```
 
-Provision resourcess (1st pass).
+Run azd provision (1st pass).
 
 ```
 $ azd provision
@@ -62,8 +62,20 @@ Build and push the app container.  This sets the APP_IMAGE env value.
 $ ./azdapp.sh acr-build
 ```
 
-Provision AZD resources (2nd pass).
+Run azd provision (2nd pass).
 
 ```
 $ azd provision
+```
+
+Initialize the app database
+
+```
+$ ./azdapp.sh rmops-dbinit
+```
+
+Invoke an interactive shell in the container
+
+```
+$ ./azdapp.sh console
 ```

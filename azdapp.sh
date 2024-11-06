@@ -2,24 +2,37 @@
 
 set -e
 
+eval $(azd env get-values)
+
 : ${RM_REPOSITORY=https://github.com/yaegashi/dx2devops-rm-docker}
 : ${RM_REF=main}
 : ${REDMINE_REPOSITORY=https://github.com/redmica/redmica}
 : ${REDMINE_REF=v3.0.3}
 
-NL=$'\n'
-QUIET=0
+: ${QUIET=false}
+: ${VERBOSE=false}
+: ${AZ_ARGS="-g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME"}
+: ${AZ_REVISION=}
+: ${AZ_REPLICA=}
+: ${AZ_CONTAINER=redmine}
 
-eval $(azd env get-values)
+NL=$'\n'
 
 msg() {
-	echo ">>> $*" >&2
+	if ! $QUIET; then
+		echo ">>> $*" >&2
+	fi
+}
+
+run() {
+   	msg "Running: $@"
+	"$@"
 }
 
 confirm() {
-	case "$QUIET" in
-		1) return
-	esac
+	if $QUIET; then
+		return
+	fi
 	read -p ">>> Continue? [y/N] " -n 1 -r >&2
 	echo >&2
 	case "$REPLY" in
@@ -28,131 +41,46 @@ confirm() {
 	exit 1
 }
 
-show_job() {
-	msg "Visit the following URL to monitor the job:${NL}https://portal.azure.com/#@${AZURE_TENANT_ID}/resource/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP_NAME}/providers/Microsoft.App/jobs/${AZURE_CONTAINER_APPS_JOB_NAME}/executionHistory$NL"
-	msg "Run the following command to show the job:${NL}az containerapp job execution show --subscription ${AZURE_SUBSCRIPTION_ID} -g ${AZURE_RESOURCE_GROUP_NAME} -n ${AZURE_CONTAINER_APPS_JOB_NAME} --job-execution-name ${1}$NL"
-	msg "Run the following command to show the logs:${NL}az monitor log-analytics query --subscription ${AZURE_SUBSCRIPTION_ID} --workspace ${AZURE_LOG_ANALYTICS_WORKSPACE_CUSTOMER_ID} --analytics-query 'ContainerAppConsoleLogs_CL | where ContainerGroupName_s startswith \"$1\"' --query [].Log_s -o tsv$NL"
-}
-
-start_job() {
-	msg 'Starting the job...'
-	JOB_NAME=$(az containerapp job show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_JOB_NAME --query properties.template |
-		jq --arg s "$1" '.containers[0].command = ["/bin/bash", "-e", "-c", $s]' |
-		az containerapp job start -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_JOB_NAME --yaml /dev/stdin --query name -o tsv)
-	show_job $JOB_NAME
-}
-
-cmd_run() {
-	if test $# -eq 0; then
-		msg 'Reading script from stdin...'
-		read -r -d '' SCRIPT
-	else
-		msg 'Reading script from arguments...'
-		SCRIPT="$*"
+app_hostname() {
+	HOSTNAME=$(az containerapp hostname list $AZ_ARGS --query [0].name -o tsv)
+	if test -z "$HOSTNAME"; then
+		HOSTNAME=$(az containerapp show $ARGS --query properties.configuration.ingress.fqdn -o tsv)
 	fi
-	confirm
-	start_job "$SCRIPT"
+	echo $HOSTNAME
 }
 
 cmd_rmops_dbinit() {
-	msg 'Running Azure CLI...'
 	SHARED_STORAGE_ACCOUNT_NAME=$(az group show -g $SHARED_RESOURCE_GROUP_NAME --query tags.STORAGE_ACCOUNT_NAME -o tsv)
 	EXPIRY=$(date -u -d '5 minutes' '+%Y-%m-%dT%H:%MZ')
 	SAS=$(az storage container generate-sas --only-show-errors --account-name $SHARED_STORAGE_ACCOUNT_NAME --name secrets --permissions r --expiry $EXPIRY --https-only --output tsv)
 	URL="https://${SHARED_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/secrets"
-
-	read -r -d '' SCRIPT <<-'EOF' || true
-	DB_ADMIN_USER=$(curl -s "$URL/DB_ADMIN_USER?$SAS")
-	DB_ADMIN_PASS=$(curl -s "$URL/DB_ADMIN_PASS?$SAS")
-	rmops dbinit "$DB_ADMIN_USER" "$DB_ADMIN_PASS"
-	EOF
-
-	msg 'Running rmops dbinit'
-	confirm	
-
-	msg 'Starting the job...'
-	JOB_NAME=$(az containerapp job show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_JOB_NAME --query properties.template |
-		jq --arg s "$SCRIPT" '.containers[0].command = ["/bin/bash", "-e", "-c", $s]' |
-		jq --arg n URL --arg v "$URL" '.containers[0].env += [{"name": $n, "value": $v}]' |
-		jq --arg n SAS --arg v "$SAS" '.containers[0].env += [{"name": $n, "value": $v}]' |
-		az containerapp job start -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_JOB_NAME --yaml /dev/stdin --query name -o tsv)
-	show_job $JOB_NAME
+	# Pipe the shell script to the interactive shell in the container.
+	# `sleep 10` is needed to wait for the interactive shell to be ready.
+	# `script` tricks the Azure CLI into thinking it's in an interactive session.
+	# `--command 'sh -c cat|sh'` is a hack to force sh to be non-interactive.
+	{
+		sleep 10
+		cat <<-EOF
+		URL="$URL"
+		SAS="$SAS"
+		DB_ADMIN_USER=\$(curl -s "\$URL/DB_ADMIN_USER?\$SAS")
+		DB_ADMIN_PASS=\$(curl -s "\$URL/DB_ADMIN_PASS?\$SAS")
+		rmops dbinit "\$DB_ADMIN_USER" "\$DB_ADMIN_PASS"
+		EOF
+	} | run script -q -c "az containerapp exec $AZ_ARGS --command 'sh -c cat|sh'"
+	rm -f typescript
 }
 
-cmd_rmops_setup() {
-	read -r -d '' SCRIPT <<-EOF || true
-	rmops setup
-	tail -1 /home/site/wwwroot/etc/password.txt
-	EOF
-	msg 'Running rmops setup'
-	confirm
-	start_job "$SCRIPT"
-}
-
-cmd_rmops_passwd() {
-	if test "$1" = ''; then
-		msg 'Specify login to reset password for'
-		exit 1
-	fi
-	read -r -d '' SCRIPT <<-EOF || true
-	rmops passwd $1
-	tail -1 /home/site/wwwroot/etc/password.txt
-	EOF
-	msg "Resetting password for $1"
-	confirm
-	start_job "$SCRIPT"
-}
-
-cmd_update_auth() {
-	msg 'Running Azure CLI...'
-	MS_CLIENT_ID=$(az containerapp auth microsoft show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --query registration.clientId -o tsv)
-	FQDN=$(az containerapp show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --query properties.configuration.ingress.fqdn -o tsv)
-	URI="https://${FQDN}/.auth/login/aad/callback"
+cmd_meid_update() {
+	HOSTNAME=$(app_hostname)
+	URI="https://${HOSTNAME}/.auth/login/aad/callback"
 	URIS=$(az ad app show --id $MS_CLIENT_ID --query web.redirectUris -o tsv)
 	URIS=$(echo "${URI}${NL}${URIS}" | sort | uniq)
-	msg "App Client ID:     ${MS_CLIENT_ID}"
-	msg "App Redirect URI:  ${URI}"
-	msg "Azure Portal link: https://portal.azure.com/#@${AZURE_TENANT_ID}/view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Authentication/appId/${MS_CLIENT_ID}"
+	msg "ME-ID App Client ID:    ${MS_CLIENT_ID}"
+	msg "ME-ID App Redirect URI: ${URI}"
 	msg "Updating new Redirect URIs:${NL}${URIS}"
 	confirm
 	az ad app update --id $MS_CLIENT_ID --web-redirect-uris ${URIS}
-	msg 'Done'
-}
-
-cmd_update_image() {
-	msg 'Running Azure CLI...'
-	CONTAINER_REGISTRY_IMAGE=$(az group show -g $SHARED_RESOURCE_GROUP_NAME --query tags.CONTAINER_REGISTRY_IMAGE -o tsv)
-	CONTAINER_REGISTRY_TAG=$(az group show -g $SHARED_RESOURCE_GROUP_NAME --query tags.CONTAINER_REGISTRY_TAG -o tsv)
-	IMAGE="${CONTAINER_REGISTRY_IMAGE}:${CONTAINER_REGISTRY_TAG}"
-	msg "Updating new container image: $IMAGE"
-	confirm
-	rev=$(az containerapp show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME |
-		jq --arg i "$IMAGE" '.properties.template.containers |= map(if .name == "redmine" or .name == "sidekiq" then .image = $i else . end)' |
-		az containerapp update -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --yaml /dev/stdin --query properties.latestRevisionName -o tsv)
-	msg 'Done'
-}
-
-cmd_acr_token() {
-	msg 'Running Azure CLI...'
-	PASSWORD=$(az acr token create --subscription ${AZURE_SUBSCRIPTION_ID} --registry ${SHARED_CONTAINER_REGISTRY_NAME} --name ${SHARED_CONTAINER_REGISTRY_TOKEN_NAME} --scope-map ${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME} --query 'credentials.passwords[0].value' --output tsv)
-	az keyvault secret set --subscription ${AZURE_SUBSCRIPTION_ID} --vault-name ${AZURE_KEY_VAULT_NAME} --name APP-CR-PASS --value "${PASSWORD}" >/dev/null
-	msg 'Done'
-}
-
-cmd_acr_push() {
-	if ! test -d rm; then
-	    git clone $RM_REPOSITORY -b $RM_REF rm
-	fi
-	if ! test -d rm/redmine; then
-	    git clone $REDMINE_REPOSITORY -b $REDMINE_REF rm/redmine
-	fi
-	IMAGE=${SHARED_CONTAINER_REGISTRY_ENDPOINT}/${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME}
-	TAG=$(date --utc +%Y%m%dT%H%M%SZ)
-	APP_IMAGE="${IMAGE}:${TAG}"
-	az acr login --subscription ${AZURE_SUBSCRIPTION_ID} --name ${SHARED_CONTAINER_REGISTRY_NAME}
-	docker build rm -t ${APP_IMAGE}
-	docker push ${APP_IMAGE}
-	azd env set APP_IMAGE ${APP_IMAGE}
 }
 
 cmd_data_get() {
@@ -160,8 +88,7 @@ cmd_data_get() {
 		msg 'Specify remote/local paths'
 		exit 1
 	fi
-	msg 'Running Azure CLI...'
-	az storage file download --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -p "$1" --dest "$2" >/dev/null
+	run az storage file download --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -p "$1" --dest "$2" >/dev/null
 }
 
 cmd_data_put() {
@@ -169,79 +96,214 @@ cmd_data_put() {
 		msg 'Specify remote/local paths'
 		exit 1
 	fi
-	msg 'Running Azure CLI...'
-	az storage file upload --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -p "$1" --source "$2" >/dev/null
+	run az storage file upload --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -p "$1" --source "$2" >/dev/null
 }
 
-cmd_show() {
-	msg 'Running Azure CLI...'
-	az containerapp show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME
+cmd_acr_token() {
+	PASSWORD=$(az acr token create --subscription ${AZURE_SUBSCRIPTION_ID} --registry ${SHARED_CONTAINER_REGISTRY_NAME} --name ${SHARED_CONTAINER_REGISTRY_TOKEN_NAME} --scope-map ${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME} --query 'credentials.passwords[0].value' --output tsv)
+	az keyvault secret set --subscription ${AZURE_SUBSCRIPTION_ID} --vault-name ${AZURE_KEY_VAULT_NAME} --name APP-CR-PASS --value "${PASSWORD}" >/dev/null
 }
 
-cmd_logs() {
-	msg 'Following logs...'
-	az containerapp logs show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --format text --follow
+cmd_acr_push() {
+	if ! test -d rm; then
+		git clone $RM_REPOSITORY -b $RM_REF rm
+	fi
+	if ! test -d rm/redmine; then
+		git clone $REDMINE_REPOSITORY -b $REDMINE_REF rm/redmine
+	fi
+	IMAGE=${SHARED_CONTAINER_REGISTRY_ENDPOINT}/${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME}
+	TAG=$(date --utc +%Y%m%dT%H%M%SZ)
+	APP_IMAGE="${IMAGE}:${TAG}"
+	run az acr login --subscription ${AZURE_SUBSCRIPTION_ID} --name ${SHARED_CONTAINER_REGISTRY_NAME}
+	run docker build rm -t ${APP_IMAGE}
+	run docker push ${APP_IMAGE}
+	run azd env set APP_IMAGE ${APP_IMAGE}
 }
 
-cmd_restart() {
-	rev=$(az containerapp show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --query properties.latestRevisionName -o tsv)
-	msg "Restarting revision $rev..."
+cmd_aca_show() {
+	run az containerapp show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME
+}
+
+cmd_aca_revisions() {
+	ARGS="$AZ_ARGS"
+	if ! $VERBOSE; then
+		ARGS="$ARGS --query [].{revision:name,created:properties.createdTime,state:properties.runningState,weight:properties.trafficWeight} -o table"
+	fi
+	run az containerapp revision list $ARGS
+}
+
+cmd_aca_replicas() {
+	ARGS="$AZ_ARGS"
+	if test -n "$AZ_REVISION"; then
+		ARGS="$ARGS --revision $AZ_REVISION"
+	fi
+	if ! $VERBOSE; then
+		ARGS="$ARGS --query [].{replica:name,created:properties.createdTime,state:properties.runningState} -o table"
+	fi
+	run az containerapp replica list $ARGS
+}
+
+cmd_aca_hostnames() {
+	ARGS="$AZ_ARGS"
+	if ! $VERBOSE; then
+		ARGS="$ARGS --query [].{hostname:name} -o table"
+	fi
+	run az containerapp hostname list $ARGS
+}
+
+cmd_aca_logs() {
+	ARGS="$AZ_ARGS --container $AZ_CONTAINER"
+	if test -n "$AZ_REVISION"; then
+		ARGS="$ARGS --revision $AZ_REVISION"
+	fi
+	if test -n "$AZ_REPLICA"; then
+		ARGS="$ARGS --replica $AZ_REPLICA"
+	fi
+	if ! $VERBOSE; then
+		ARGS="$ARGS --format text"
+	fi
+	if "$1" = '-f'; then
+		ARGS="$ARGS --follow"
+	fi
+	run az containerapp logs show $ARGS
+}
+
+cmd_aca_console() {
+	ARGS="$AZ_ARGS --container $AZ_CONTAINER"
+	if test -n "$AZ_REVISION"; then
+		ARGS="$ARGS --revision $AZ_REVISION"
+	fi
+	if test -n "$AZ_REPLICA"; then
+		ARGS="$ARGS --replica $AZ_REPLICA"
+	fi
+	CMD="$*"
+	if test -z "$CMD"; then
+		CMD=bash
+	fi
+	run az containerapp exec $ARGS --command "$CMD"
+	run stty sane
+}
+
+cmd_aca_restart() {
+	if test -z "$AZ_REVISION"; then
+		AZ_REVISION=$(az containerapp show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --query properties.latestRevisionName -o tsv)
+	fi
+	ARGS="$AZ_ARGS --revision $AZ_REVISION"
+	msg "Restarting revision $AZ_REVISION..."
 	confirm
-	az containerapp revision restart -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --revision $rev -o tsv
+	run az containerapp revision restart $ARGS
 }
 
-cmd_portal() {
-	msg 'Opening Azure Portal'
-	URL="https://portal.azure.com/#@${AZURE_TENANT_ID}/resource/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP_NAME}/providers/Microsoft.App/containerApps/${AZURE_CONTAINER_APPS_APP_NAME}"
-	xdg-open "$URL"
+cmd_portal_shared() {
+	URL="https://portal.azure.com/#@${AZURE_TENANT_ID}/resource/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${SHARED_RESOURCE_GROUP_NAME}"
+	run xdg-open "$URL"
+}
+
+cmd_portal_app() {
+	URL="https://portal.azure.com/#@${AZURE_TENANT_ID}/resource/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP_NAME}"
+	run xdg-open "$URL"
+}
+
+cmd_portal_meid() {
+	if test -z "$MS_TENANT_ID" -o -z "$MS_CLIENT_ID"; then
+		msg 'Missing MS_TEANT_ID or MS_CLIENT_ID settings'
+		exit 1
+	fi
+	URL="https://portal.azure.com/#@${MS_TENANT_ID}/view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId/${MS_CLIENT_ID}"
+	run xdg-open "$URL"
 }
 
 cmd_open() {
-	msg 'Running Azure CLI...'
-	URL="https://$(az containerapp show -g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME --query properties.configuration.ingress.fqdn -o tsv)${APP_ROOT_PATH}"
-	msg "Opening $URL"
-	xdg-open "$URL"
+	HOSTNAME=$(app_hostname)
+  	URL="https://${HOSTNAME}${APP_ROOT_PATH}"
+	run xdg-open "$URL"
 }
 
-case "$1" in
-	--quiet|-q)
-		shift
-		QUIET=1
-		;;
-esac
+cmd_help() {
+	msg "Usage: $0 <command> [options...] [args...]"
+	msg "Options":
+	msg "  --quiet, -q                - Do not ask for confirmation"
+	msg "  --verbose, -v              - Show detailed output"
+	msg "  --revision <name>          - Specify revision name"
+	msg "  --replica <name>           - Specify replica name"
+	msg "  --container <name>         - Specify container name"
+	msg "Commands:"
+	msg "  rmops-dbinit              - RMOPS: initialize app database"
+	msg "  meid-update               - ME-ID: update app redirect URIs"
+	msg "  data-get <remote> <local> - Data: download file"
+	msg "  data-put <remote> <local> - Data: upload file"
+	msg "  acr-token                 - ACR: update auth token"
+	msg "  acr-push                  - ACR: build and push container image"
+	msg "  aca-show                  - ACA: show app"
+	msg "  aca-revisions             - ACA: list revisions"
+	msg "  aca-replicas              - ACA: list replicas"
+	msg "  aca-hostnames             - ACA: list hostnames"
+	msg "  aca-restart               - ACA: restart revision"
+	msg "  aca-logs [-f]             - ACA: show container logs"
+	msg "  aca-console [command]     - ACA: connect to container"
+	msg "  portal-shared             - Portal: open shared resource group in browser"
+	msg "  portal-app                - Portal: open app resource group in browser"
+	msg "  portal-meid               - Portal: open ME-ID app registration in browser"
+	msg "  open                      - open app in browser"
+	exit $1
+}
+
+OPTIONS=$(getopt -o hqv -l help -l quiet -l verbose -l revision: -l replica: -l container: -- "$@")
+if test $? -ne 0; then
+	cmd_help 1
+fi
+
+eval set -- "$OPTIONS"
+
+while true; do
+	case "$1" in
+		-h|--help)
+			cmd_help 0
+			;;			
+		-q|--quiet)
+			QUIET=true
+			shift
+			;;
+		-v|--verbose)
+			VERBOSE=true
+			shift
+			;;
+		--revision)
+			AZ_REVISION=$2
+			shift 2
+			;;
+		--replica)
+			AZ_REPLICA=$2
+			shift 2
+			;;
+		--container)
+			AZ_CONTAINER=$2
+			shift 2
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			msg "E: Invalid option: $1"
+			cmd_help 1
+			;;
+	esac
+done
+
+if test $# -eq 0; then
+	msg "E: Missing command"
+	cmd_help 1
+fi
 
 case "$1" in
-	run)
-		shift
-		cmd_run "$@"
-		;;
-	rmops-dbinit|setup)
+	rmops-dbinit)
 		shift
 		cmd_rmops_dbinit "$@"
 		;;
-	rmops-setup|setup)
+	meid-update)
 		shift
-		cmd_rmops_setup "$@"
-		;;
-	rmops-passwd|passwd)
-		shift
-		cmd_rmops_passwd "$@"
-		;;
-	update-auth|auth)
-		shift
-		cmd_update_auth "$@"
-		;;
-	update-image)
-		shift
-		cmd_update_image "$@"
-		;;
-	acr-token)
-		shift
-		cmd_acr_token "$@"
-		;;
-	acr-push)
-		shift
-		cmd_acr_push "$@"
+		cmd_meid_update "$@"
 		;;
 	data-get|download)
 		shift
@@ -251,44 +313,60 @@ case "$1" in
 		shift
 		cmd_data_put "$@"
 		;;
-	show)
+	acr-token)
 		shift
-		cmd_show "$@"
+		cmd_acr_token "$@"
 		;;
-	logs)
+	acr-push)
 		shift
-		cmd_logs "$@"
+		cmd_acr_push "$@"
 		;;
-	restart)
+	aca-show)
 		shift
-		cmd_restart "$@"
+		cmd_aca_show "$@"
 		;;
-	portal)
+	aca-revisions)
 		shift
-		cmd_portal "$@"
+		cmd_aca_revisions "$@"
+		;;
+	aca-replicas)
+		shift
+		cmd_aca_replicas "$@"
+		;;
+	aca-hostnames)
+		shift
+		cmd_aca_hostnames "$@"
+		;;
+	aca-logs)
+		shift
+		cmd_aca_logs "$@"
+		;;
+	aca-console)
+		shift
+		cmd_aca_console "$@"
+		;;
+	aca-restart)
+		shift
+		cmd_aca_restart "$@"
+		;;
+	portal-shared)
+		shift
+		cmd_portal_shared "$@"
+		;;
+	portal-app)
+		shift
+		cmd_portal_app "$@"
+		;;
+	portal-meid)
+		shift
+		cmd_portal_meid "$@"
 		;;
 	open)
 		shift
 		cmd_open "$@"
 		;;
 	*)
-		msg "Usage: $0 [-q|--quiet] <command> [args...]"
-		msg "Commands:"
-		msg "  run [script]              - Run script in container"
-		msg "  rmops-dbinit              - Run rmops dbinit in container"
-		msg "  rmops-setup               - Run rmops setup in container"
-		msg "  rmops-passwd <login>      - Run rmops passwd <login> in container"
-		msg "  update-auth               - Update redirect URIs in ME-ID app"
-		msg "  update-image              - Update container image"
-		msg "  acr-token                 - Update ACR token"
-		msg "  acr-push                  - Build and push to ACR"
-		msg "  data-get <remote> <local> - Download file in data share"
-		msg "  data-put <remote> <local> - Upload file in data share"
-		msg "  show                      - Show app with Azure CLI"
-		msg "  logs                      - Show app logs with Azure CLI"
-		msg "  restart                   - Restart app's running revision"
-		msg "  portal                    - Open app in Azure Portal"
-		msg "  open                      - Open app in browser"
-		exit 1
+		msg "E: Invalid command: $1"
+		cmd_help 1
 		;;
 esac
