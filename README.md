@@ -1,81 +1,21 @@
-# dx2devops-rm-azdapp
+# dx2devops-rm-site
 
 ## Introduction
 
-This AZD project deploys Azure Container Apps using [dx2devops-rm-azdshared](https://github.com/yaegashi/dx2devops-rm-azdshared) shared resources.
+A cloud-native DevOps solution for [Redmine][redmine]/[RedMica][redmica] (RM Apps) with Azure Container Apps.
 
-## Authentication
+This repository provides GitOps for RM App site instance resources, including Azure Container Apps, site specific container customizations, etc.
 
-Authenticate with the Azure CLI, then use its auth for the Azure Developer CLI.
+|Repository|Description|
+|-|-|
+|[dx2devops-rm]|Documents|
+|[dx2devops-rm-base]|RM Base GitOps: Database, Container Registry, Backups, etc.|
+|[dx2devops-rm-site]|RM Site GitOps: Azure Container Apps (This repository)|
+|[dx2devops-rm-docker]|RM App Container: Dockerfile, compose.yml, etc.|
 
-```
-$ az login
-$ azd config set auth.useAzCliAuth true
-```
-
-## Config & Deploy
-
-You need a shared resource group deployed by dx2devops-rm-azdshared.
-
-(Optional) Put the remote state backend configuration like the following in [azure.yaml](azure.yaml) to enable
-[the remote environments](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/remote-environments-support).
-
-```
-name: dx2devops-rm-azdapp
-state:
-  remote:
-    backend: AzureBlobStorage
-    config:
-      accountName: stxxxxxxxx
-```
-
-Create an environment and set configuration variables.
-
-```
-$ azd env new app1
-$ azd env set SHARED_RESOURCE_GROUP_NAME rg-shared1
-$ azd env set APP_ROOT_PATH /
-$ azd env set DNS_ZONE_RESOURCE_GROUP_NAME rg-dns
-$ azd env set DNS_ZONE_NAME rm.example.com
-$ azd env set DNS_RECORD_NAME foo
-$ azd env set MS_TENANT_ID xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-$ azd env set MS_CLIENT_ID yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
-$ azd env set MS_CLIENT_SECRET zzzzzzzz
-```
-
-Run azd provision (1st pass).
-
-```
-$ azd provision
-```
-
-Update Azure Container Registry token.
-
-```
-$ ./azdapp.sh acr-token
-```
-
-
-Build and push the app container.  This sets the APP_IMAGE env value.
-
-```
-$ ./azdapp.sh acr-build
-```
-
-Run azd provision (2nd pass).
-
-```
-$ azd provision
-```
-
-Initialize the app database
-
-```
-$ ./azdapp.sh rmops-dbinit
-```
-
-Invoke an interactive shell in the container
-
-```
-$ ./azdapp.sh console
-```
+[redmine]: https://github.com/redmine/redmine
+[redmica]: https://github.com/redmica/redmica
+[dx2devops-rm]: https://github.com/yaegashi/dx2devops-rm
+[dx2devops-rm-base]: https://github.com/yaegashi/dx2devops-rm-base
+[dx2devops-rm-site]: https://github.com/yaegashi/dx2devops-rm-site
+[dx2devops-rm-docker]: https://github.com/yaegashi/dx2devops-rm-docker
