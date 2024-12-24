@@ -9,7 +9,7 @@ eval $(azd env get-values)
 : ${REDMINE_REPOSITORY=https://github.com/redmica/redmica}
 : ${REDMINE_REF=v3.0.3}
 
-: ${QUIET=false}
+: ${NOPROMPT=false}
 : ${VERBOSE=false}
 : ${AZ_ARGS="-g $AZURE_RESOURCE_GROUP_NAME -n $AZURE_CONTAINER_APPS_APP_NAME"}
 : ${AZ_REVISION=}
@@ -19,9 +19,7 @@ eval $(azd env get-values)
 NL=$'\n'
 
 msg() {
-	if ! $QUIET; then
-		echo ">>> $*" >&2
-	fi
+	echo ">>> $*" >&2
 }
 
 run() {
@@ -30,7 +28,7 @@ run() {
 }
 
 confirm() {
-	if $QUIET; then
+	if $NOPROMPT; then
 		return
 	fi
 	read -p ">>> Continue? [y/N] " -n 1 -r >&2
@@ -50,10 +48,10 @@ app_hostname() {
 }
 
 cmd_rmops_dbinit() {
-	SHARED_STORAGE_ACCOUNT_NAME=$(az group show -g $SHARED_RESOURCE_GROUP_NAME --query tags.STORAGE_ACCOUNT_NAME -o tsv)
+	BASE_STORAGE_ACCOUNT_NAME=$(az group show -g $BASE_RESOURCE_GROUP_NAME --query tags.STORAGE_ACCOUNT_NAME -o tsv)
 	EXPIRY=$(date -u -d '5 minutes' '+%Y-%m-%dT%H:%MZ')
-	SAS=$(az storage container generate-sas --only-show-errors --account-name $SHARED_STORAGE_ACCOUNT_NAME --name secrets --permissions r --expiry $EXPIRY --https-only --output tsv)
-	URL="https://${SHARED_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/secrets"
+	SAS=$(az storage container generate-sas --only-show-errors --account-name $BASE_STORAGE_ACCOUNT_NAME --name secrets --permissions r --expiry $EXPIRY --https-only --output tsv)
+	URL="https://${BASE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/secrets"
 	# Pipe the shell script to the interactive shell in the container.
 	# `sleep 10` is needed to wait for the interactive shell to be ready.
 	# `script` tricks the Azure CLI into thinking it's in an interactive session.
@@ -100,7 +98,7 @@ cmd_data_put() {
 }
 
 cmd_acr_token() {
-	PASSWORD=$(az acr token create --subscription ${AZURE_SUBSCRIPTION_ID} --registry ${SHARED_CONTAINER_REGISTRY_NAME} --name ${SHARED_CONTAINER_REGISTRY_TOKEN_NAME} --scope-map ${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME} --query 'credentials.passwords[0].value' --output tsv)
+	PASSWORD=$(az acr token create --subscription ${AZURE_SUBSCRIPTION_ID} --registry ${BASE_CONTAINER_REGISTRY_NAME} --name ${BASE_CONTAINER_REGISTRY_TOKEN_NAME} --scope-map ${BASE_CONTAINER_REGISTRY_SCOPE_MAP_NAME} --query 'credentials.passwords[0].value' --output tsv)
 	az keyvault secret set --subscription ${AZURE_SUBSCRIPTION_ID} --vault-name ${AZURE_KEY_VAULT_NAME} --name APP-CR-PASS --value "${PASSWORD}" >/dev/null
 }
 
@@ -111,10 +109,10 @@ cmd_acr_push() {
 	if ! test -d rm/redmine; then
 		git clone $REDMINE_REPOSITORY -b $REDMINE_REF rm/redmine
 	fi
-	IMAGE=${SHARED_CONTAINER_REGISTRY_ENDPOINT}/${SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME}
+	IMAGE=${BASE_CONTAINER_REGISTRY_ENDPOINT}/${BASE_CONTAINER_REGISTRY_SCOPE_MAP_NAME}
 	TAG=$(date --utc +%Y%m%dT%H%M%SZ)
 	APP_IMAGE="${IMAGE}:${TAG}"
-	run az acr login --subscription ${AZURE_SUBSCRIPTION_ID} --name ${SHARED_CONTAINER_REGISTRY_NAME}
+	run az acr login --subscription ${AZURE_SUBSCRIPTION_ID} --name ${BASE_CONTAINER_REGISTRY_NAME}
 	run docker build rm -t ${APP_IMAGE}
 	run docker push ${APP_IMAGE}
 	run azd env set APP_IMAGE ${APP_IMAGE}
@@ -162,7 +160,7 @@ cmd_aca_logs() {
 	if ! $VERBOSE; then
 		ARGS="$ARGS --format text"
 	fi
-	if "$1" = '-f'; then
+	if test "$1" = 'follow'; then
 		ARGS="$ARGS --follow"
 	fi
 	run az containerapp logs show $ARGS
@@ -194,12 +192,12 @@ cmd_aca_restart() {
 	run az containerapp revision restart $ARGS
 }
 
-cmd_portal_shared() {
-	URL="https://portal.azure.com/#@${AZURE_TENANT_ID}/resource/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${SHARED_RESOURCE_GROUP_NAME}"
+cmd_portal_base() {
+	URL="https://portal.azure.com/#@${AZURE_TENANT_ID}/resource/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${BASE_RESOURCE_GROUP_NAME}"
 	run xdg-open "$URL"
 }
 
-cmd_portal_app() {
+cmd_portal_site() {
 	URL="https://portal.azure.com/#@${AZURE_TENANT_ID}/resource/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP_NAME}"
 	run xdg-open "$URL"
 }
@@ -222,33 +220,34 @@ cmd_open() {
 cmd_help() {
 	msg "Usage: $0 <command> [options...] [args...]"
 	msg "Options":
-	msg "  --quiet, -q                - Do not ask for confirmation"
+	msg "  --help,-h                  - Show this help"
+	msg "  --no-prompt                - Do not ask for confirmation"
 	msg "  --verbose, -v              - Show detailed output"
 	msg "  --revision <name>          - Specify revision name"
 	msg "  --replica <name>           - Specify replica name"
 	msg "  --container <name>         - Specify container name"
 	msg "Commands:"
-	msg "  rmops-dbinit              - RMOPS: initialize app database"
-	msg "  meid-update               - ME-ID: update app redirect URIs"
-	msg "  data-get <remote> <local> - Data: download file"
-	msg "  data-put <remote> <local> - Data: upload file"
-	msg "  acr-token                 - ACR: update auth token"
-	msg "  acr-push                  - ACR: build and push container image"
-	msg "  aca-show                  - ACA: show app"
-	msg "  aca-revisions             - ACA: list revisions"
-	msg "  aca-replicas              - ACA: list replicas"
-	msg "  aca-hostnames             - ACA: list hostnames"
-	msg "  aca-restart               - ACA: restart revision"
-	msg "  aca-logs [-f]             - ACA: show container logs"
-	msg "  aca-console [command]     - ACA: connect to container"
-	msg "  portal-shared             - Portal: open shared resource group in browser"
-	msg "  portal-app                - Portal: open app resource group in browser"
-	msg "  portal-meid               - Portal: open ME-ID app registration in browser"
-	msg "  open                      - open app in browser"
+	msg "  rmops-dbinit               - RMOPS: initialize app database"
+	msg "  meid-update                - ME-ID: update app redirect URIs"
+	msg "  data-get <remote> <local>  - Data: download file"
+	msg "  data-put <remote> <local>  - Data: upload file"
+	msg "  acr-token                  - ACR: update auth token"
+	msg "  acr-push                   - ACR: build and push container image"
+	msg "  aca-show                   - ACA: show app"
+	msg "  aca-revisions              - ACA: list revisions"
+	msg "  aca-replicas               - ACA: list replicas"
+	msg "  aca-hostnames              - ACA: list hostnames"
+	msg "  aca-restart                - ACA: restart revision"
+	msg "  aca-logs [follow]          - ACA: show container logs"
+	msg "  aca-console [command...]   - ACA: connect to container"
+	msg "  portal-base                - Portal: open base resource group in browser"
+	msg "  portal-site                - Portal: open site resource group in browser"
+	msg "  portal-meid                - Portal: open ME-ID app registration in browser"
+	msg "  open                       - open app in browser"
 	exit $1
 }
 
-OPTIONS=$(getopt -o hqv -l help -l quiet -l verbose -l revision: -l replica: -l container: -- "$@")
+OPTIONS=$(getopt -o hqv -l help -l no-prompt -l verbose -l revision: -l replica: -l container: -- "$@")
 if test $? -ne 0; then
 	cmd_help 1
 fi
@@ -260,8 +259,8 @@ while true; do
 		-h|--help)
 			cmd_help 0
 			;;			
-		-q|--quiet)
-			QUIET=true
+		--no-prompt)
+			NOPROMPT=true
 			shift
 			;;
 		-v|--verbose)
@@ -349,13 +348,13 @@ case "$1" in
 		shift
 		cmd_aca_restart "$@"
 		;;
-	portal-shared)
+	portal-base)
 		shift
-		cmd_portal_shared "$@"
+		cmd_portal_base "$@"
 		;;
-	portal-app)
+	portal-site)
 		shift
-		cmd_portal_app "$@"
+		cmd_portal_site "$@"
 		;;
 	portal-meid)
 		shift
