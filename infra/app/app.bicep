@@ -13,8 +13,7 @@ param databaseUrlKV string
 param secretKeyBaseKV string
 param msTenantId string
 param msClientId string
-@secure()
-param msClientSecret string
+param msClientSecretKV string
 param userAssignedIdentityName string
 param tz string
 
@@ -199,7 +198,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
         }
         {
           name: 'microsoft-provider-authentication-secret'
-          value: msClientSecret
+          keyVaultUrl: msClientSecretKV
+          identity: userAssignedIdentity.id
         }
         {
           name: 'token-store-url'

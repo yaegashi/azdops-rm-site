@@ -43,7 +43,7 @@ param appCertificateExists bool = false
 
 param tz string = 'Asia/Tokyo'
 
-param sharedResourceGroupName string
+param baseResourceGroupName string
 
 param dnsZoneResourceGroupName string = ''
 
@@ -65,20 +65,15 @@ var tags = {
 #disable-next-line no-unused-vars
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 
-resource sharedRG 'Microsoft.Resources/resourceGroups@2021-04-01' existing = {
-  name: sharedResourceGroupName
-}
-
-resource sharedKeyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
-  scope: sharedRG
-  name: sharedRG.tags.KEY_VAULT_NAME
+resource baseRG 'Microsoft.Resources/resourceGroups@2021-04-01' existing = {
+  name: baseResourceGroupName
 }
 
 module registryToken './app/registry-token.bicep' = {
-  scope: sharedRG
+  scope: baseRG
   name: 'registryScope'
   params: {
-    containerRegistryName: sharedRG.tags.CONTAINER_REGISTRY_NAME
+    containerRegistryName: baseRG.tags.CONTAINER_REGISTRY_NAME
     scopeMapName: xContainerAppName
     scopeMapDescription: '${environmentName}/${xContainerAppName}'
   }
@@ -177,7 +172,7 @@ module keyVaultSecretMsClientSecret './core/security/keyvault-secret.bicep' = {
     name: 'MS-CLIENT-SECRET'
     tags: tags
     keyVaultName: keyVault.outputs.name
-    secretValue: sharedKeyVault.getSecret('MS-CLIENT-SECRET')
+    secretValue: msClientSecret
   }
 }
 
@@ -188,7 +183,7 @@ var xContainerAppsEnvironmentName = !empty(containerAppsEnvironmentName)
 var xContainerAppName = !empty(containerAppName) ? containerAppName : '${abbrs.appContainerApps}${resourceToken}'
 var appCrUser = xContainerAppName
 var appDbName = replace(xContainerAppName, '-', '_')
-var appDbUrl = format(sharedRG.tags.DB_URL_FORMAT, appDbName, appDbPass, appDbName)
+var appDbUrl = format(baseRG.tags.DB_URL_FORMAT, appDbName, appDbPass, appDbName)
 
 module keyVaultSecretDatabaseUrl './core/security/keyvault-secret.bicep' = {
   name: 'keyVaultSecretDatabaseUrl'
@@ -229,6 +224,15 @@ module storageAccount './core/storage/storage-account.bicep' = {
     location: location
     tags: tags
     name: !empty(storageAccountName) ? storageAccountName : '${abbrs.storageStorageAccounts}${resourceToken}'
+  }
+}
+
+module storageAccess './app/storage-access.bicep' = {
+  name: 'storageAccess'
+  scope: rg
+  params: {
+    storageAccountName: storageAccount.outputs.name
+    principalId: principalId
   }
 }
 
@@ -285,7 +289,7 @@ module app './app/app.bicep' = {
     containerAppsEnvironmentName: env.outputs.name
     containerAppName: xContainerAppName
     storageAccountName: storageAccount.outputs.name
-    containerRegistryEndpoint: sharedRG.tags.CONTAINER_REGISTRY_ENDPOINT
+    containerRegistryEndpoint: baseRG.tags.CONTAINER_REGISTRY_ENDPOINT
     containerRegistryUsername: appCrUser
     containerRegistryPasswordKV: '${keyVault.outputs.endpoint}secrets/APP-CR-PASS'
     userAssignedIdentityName: userAssignedIdentity.outputs.name
@@ -296,7 +300,7 @@ module app './app/app.bicep' = {
     secretKeyBaseKV: '${keyVault.outputs.endpoint}secrets/SECRET-KEY-BASE'
     msTenantId: msTenantId
     msClientId: msClientId
-    msClientSecret: msClientSecret
+    msClientSecretKV: '${keyVault.outputs.endpoint}secrets/MS-CLIENT-SECRET'
     tz: xTZ
   }
 }
@@ -310,7 +314,7 @@ module job './app/job.bicep' = {
     tags: tags
     containerAppsEnvironmentName: env.outputs.name
     containerAppName: xContainerAppName
-    containerRegistryEndpoint: sharedRG.tags.CONTAINER_REGISTRY_ENDPOINT
+    containerRegistryEndpoint: baseRG.tags.CONTAINER_REGISTRY_ENDPOINT
     containerRegistryUsername: appCrUser
     containerRegistryPasswordKV: '${keyVault.outputs.endpoint}secrets/APP-CR-PASS'
     userAssignedIdentityName: userAssignedIdentity.outputs.name
@@ -330,7 +334,7 @@ output AZURE_CONTAINER_APPS_JOB_NAME string = job.outputs.name
 output AZURE_STORAGE_ACCOUNT_NAME string = storageAccount.outputs.name
 output AZURE_LOG_ANALYTICS_WORKSPACE_CUSTOMER_ID string = monitoring.outputs.logAnalyticsWorkspaceCustomerId
 output APP_CERTIFICATE_EXISTS bool = !empty(appCustomDomainName)
-output SHARED_CONTAINER_REGISTRY_NAME string = sharedRG.tags.CONTAINER_REGISTRY_NAME
-output SHARED_CONTAINER_REGISTRY_ENDPOINT string = sharedRG.tags.CONTAINER_REGISTRY_ENDPOINT
-output SHARED_CONTAINER_REGISTRY_SCOPE_MAP_NAME string = registryToken.outputs.scopeMapName
-output SHARED_CONTAINER_REGISTRY_TOKEN_NAME string = registryToken.outputs.tokenName
+output BASE_CONTAINER_REGISTRY_NAME string = baseRG.tags.CONTAINER_REGISTRY_NAME
+output BASE_CONTAINER_REGISTRY_ENDPOINT string = baseRG.tags.CONTAINER_REGISTRY_ENDPOINT
+output BASE_CONTAINER_REGISTRY_SCOPE_MAP_NAME string = registryToken.outputs.scopeMapName
+output BASE_CONTAINER_REGISTRY_TOKEN_NAME string = registryToken.outputs.tokenName

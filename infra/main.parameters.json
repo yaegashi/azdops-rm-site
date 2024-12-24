@@ -14,8 +14,8 @@
     "tz": {
       "value": "${TZ}"
     },
-    "sharedResourceGroupName": {
-      "value": "${SHARED_RESOURCE_GROUP_NAME}"
+    "baseResourceGroupName": {
+      "value": "${BASE_RESOURCE_GROUP_NAME}"
     },
     "appImage": {
       "value": "${APP_IMAGE}"
@@ -51,7 +51,7 @@
       "value": "${MS_CLIENT_ID}"
     },
     "msClientSecret": {
-      "value": "${MS_CLIENT_SECRET}"
+      "value": "$(secretOrRandomPassword ${AZURE_KEY_VAULT_NAME} MS-CLIENT-SECRET)"
     }
   }
 }
