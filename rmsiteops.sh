@@ -69,16 +69,29 @@ cmd_rmops_dbinit() {
 	rm -f typescript
 }
 
-cmd_meid_update() {
-	HOSTNAME=$(app_hostname)
-	URI="https://${HOSTNAME}/.auth/login/aad/callback"
+cmd_meid_redirect() {
+	APP_HOSTNAME=$(app_hostname)
+	URI="https://${APP_HOSTNAME}/.auth/login/aad/callback"
 	URIS=$(az ad app show --id $MS_CLIENT_ID --query web.redirectUris -o tsv)
 	URIS=$(echo "${URI}${NL}${URIS}" | sort | uniq)
 	msg "ME-ID App Client ID:    ${MS_CLIENT_ID}"
 	msg "ME-ID App Redirect URI: ${URI}"
 	msg "Updating new Redirect URIs:${NL}${URIS}"
 	confirm
-	az ad app update --id $MS_CLIENT_ID --web-redirect-uris ${URIS}
+	run az ad app update --id $MS_CLIENT_ID --web-redirect-uris $URIS
+}
+
+cmd_meid_secret() {
+	APP_HOSTNAME=$(app_hostname)
+	CRED_TIME=$(date +%s)
+	CRED_NAME="$APP_HOSTNAME $CRED_TIME"
+	msg "ME-ID App Client ID: ${MS_CLIENT_ID}"
+	msg "Adding new Client Secret for $APP_HOSTNAME"
+	confirm
+	msg "ME-ID App new credential name: $CRED_NAME"
+	PASSWORD=$(az ad app credential reset --id $MS_CLIENT_ID --append --display-name "$CRED_NAME" --end-date 2299-12-31 --query password -o tsv 2>/dev/null)
+	run az keyvault secret set --vault-name $AZURE_KEY_VAULT_NAME --name MS-CLIENT-SECRET --file <(echo -n "$PASSWORD") >/dev/null
+	run az containerapp revision copy $AZ_ARGS --revision-suffix $CRED_TIME >/dev/null
 }
 
 cmd_data_get() {
@@ -228,7 +241,8 @@ cmd_help() {
 	msg "  --container <name>         - Specify container name"
 	msg "Commands:"
 	msg "  rmops-dbinit               - RMOPS: initialize app database"
-	msg "  meid-update                - ME-ID: update app redirect URIs"
+	msg "  meid-redirect              - ME-ID: update app redirect URIs"
+	msg "  meid-secret                - ME-ID: create new client secret"
 	msg "  data-get <remote> <local>  - Data: download file"
 	msg "  data-put <remote> <local>  - Data: upload file"
 	msg "  acr-token                  - ACR: update auth token"
@@ -300,9 +314,13 @@ case "$1" in
 		shift
 		cmd_rmops_dbinit "$@"
 		;;
-	meid-update)
+	meid-redirect)
 		shift
-		cmd_meid_update "$@"
+		cmd_meid_redirect "$@"
+		;;
+	meid-secret)
+		shift
+		cmd_meid_secret "$@"
 		;;
 	data-get|download)
 		shift
