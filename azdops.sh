@@ -4,6 +4,9 @@ set -e
 
 : ${NOPROMPT=false}
 
+unset CODESPACES
+unset GITHUB_TOKEN
+
 msg() {
 	echo ">>> $*" >&2
 }
@@ -38,9 +41,16 @@ disable_remote_env() {
 	run azd config unset state
 }
 
-cmd_auth() {
+cmd_auth_config() {
 	run azd config set auth.useAzCliAuth true
-	msg 'You have to run "az login" to complete the auth setup'
+}
+
+cmd_auth_az() {
+	run az login "$@"
+}
+
+cmd_auth_gh() {
+	run gh auth login "$@"
 }
 
 cmd_load() {
@@ -67,9 +77,21 @@ cmd_save() {
 	enable_remote_env $AZURE_STORAGE_ACCOUNT_NAME
 	run azd env refresh
 	run azd env list
-	msg 'Set the following variables to load the remote env in future:'
-	msg "  AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
-	msg "  AZD_REMOTE_ENV_NAME=$AZURE_ENV_NAME"
+}
+
+cmd_set() {
+	if ! eval $(azd env get-values); then
+		msg 'E: Failed to get values from the azd local env'
+		exit 1
+	fi
+	if test -z "$AZURE_STORAGE_ACCOUNT_NAME"; then
+		msg 'E: AZURE_STORAGE_ACCOUNT_NAME is not set in the azd local env'
+		exit 1
+	fi
+	run gh variable set AZD_REMOTE_ENV_NAME -b $AZURE_ENV_NAME
+	run gh variable set AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME -b $AZURE_STORAGE_ACCOUNT_NAME
+	run gh secret set AZD_REMOTE_ENV_NAME -b $AZURE_ENV_NAME -a codespaces
+	run gh secret set AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME -b $AZURE_STORAGE_ACCOUNT_NAME -a codespaces
 }
 
 cmd_clear() {
@@ -83,9 +105,12 @@ cmd_help() {
 	msg "  --help,-h     - Show this help"
 	msg "  --no-prompt   - Do not ask for confirmation"
 	msg "Commands:"
-	msg "  auth          - Set up azd config for auth"
+	msg "  auth-config   - Run \"azd config set auth.useAzCliAuth true\""
+	msg "  auth-az       - Run \"az login\""
+	msg "  auth-gh       - Run \"gh auth login\""
 	msg "  load          - Load the azd remote env"
 	msg "  save          - Save the azd remote env"
+	msg "  set           - Set GitHub secrets for the azd remote env"
 	msg "  clear         - Clear the azd remote env"
 	exit $1
 }
@@ -123,9 +148,17 @@ if test $# -eq 0; then
 fi
 
 case "$1" in
-	auth)
+	auth-config)
 		shift
-		cmd_auth "$@"
+		cmd_auth_config "$@"
+		;;
+	auth-az)
+		shift
+		cmd_auth_az "$@"
+		;;
+	auth-gh)
+		shift
+		cmd_auth_gh "$@"
 		;;
 	load)
 		shift
@@ -134,6 +167,10 @@ case "$1" in
 	save)
 		shift
 		cmd_save "$@"
+		;;
+	set)
+		shift
+		cmd_set "$@"
 		;;
 	clear)
 		shift
