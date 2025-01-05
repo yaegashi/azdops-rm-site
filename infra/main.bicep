@@ -63,7 +63,7 @@ var tags = {
 }
 
 #disable-next-line no-unused-vars
-var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
+var resourceToken = toLower(uniqueString(subscription().id, environmentName, location, rg.name))
 
 resource baseRG 'Microsoft.Resources/resourceGroups@2021-04-01' existing = {
   name: baseResourceGroupName
@@ -326,6 +326,8 @@ module job './app/job.bicep' = {
 
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenant().tenantId
+output AZURE_SUBSCRIPTION_ID string = subscription().subscriptionId
+output AZURE_PRINCIPAL_ID string = principalId
 output AZURE_RESOURCE_GROUP_NAME string = rg.name
 output AZURE_KEY_VAULT_NAME string = keyVault.outputs.name
 output AZURE_KEY_VAULT_ENDPOINT string = keyVault.outputs.endpoint
