@@ -1,0 +1,92 @@
+name: AZD Ops Setup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  AZD_INPUTS_FILE: .github/azdops/${{ github.ref_name }}/inputs.yml
+
+jobs:
+  azdops-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Load AZD Ops inputs
+        uses: actions-tools/yaml-outputs@v2
+        id: yaml
+        with:
+          file-path: ${{ env.AZD_INPUTS_FILE }}
+      - name: Azure CLI
+        uses: azure/login@v2
+        with:
+          client-id: ${{ steps.yaml.outputs.AZURE_CLIENT_ID }}
+          tenant-id: ${{ steps.yaml.outputs.AZURE_TENANT_ID }}
+          subscription-id: ${{ steps.yaml.outputs.AZURE_SUBSCRIPTION_ID }}
+          enable-AzPSSession: true
+      - name: Azure Developer CLI
+        uses: Azure/setup-azd@v2.0.0
+      - name: AZD Provision
+        shell: bash
+        run: |
+          set -x
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+          ENV_NAME="${REPO_NAME}-${BRANCH_NAME}"
+          ./azdops.sh auth-config
+          azd env new ${ENV_NAME}
+          azd env set AZURE_SUBSCRIPTION_ID $AZURE_SUBSCRIPTION_ID
+          azd env set AZURE_LOCATION $AZURE_LOCATION
+          if test -n "$AZURE_PRINCIPAL_ID"; then
+            azd env set AZURE_PRINCIPAL_ID $AZURE_PRINCIPAL_ID
+          fi
+          if test -n "$AZURE_RESOURCE_GROUP_NAME"; then
+            azd env set AZURE_RESOURCE_GROUP_NAME $AZURE_RESOURCE_GROUP_NAME
+          fi
+          azd env set BASE_RESOURCE_GROUP_NAME $BASE_RESOURCE_GROUP_NAME
+          azd env set APP_ROOT_PATH $APP_ROOT_PATH
+          azd env set DNS_ZONE_RESOURCE_GROUP_NAME $DNS_ZONE_RESOURCE_GROUP_NAME
+          azd env set DNS_ZONE_NAME $DNS_ZONE_NAME
+          azd env set DNS_RECORD_NAME $DNS_RECORD_NAME
+          azd env set MS_TENANT_ID $MS_TENANT_ID
+          azd env set MS_CLIENT_ID $MS_CLIENT_ID
+          azd provision --no-prompt
+          ./rmsiteops.sh meid-redirect --no-prompt
+          ./rmsiteops.sh meid-secret --no-prompt
+      - name: AZD Remote Environment
+        shell: bash
+        run: |
+          set -x
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+          ENV_NAME="${REPO_NAME}-${BRANCH_NAME}"
+          ./azdops.sh save --no-prompt
+          AZD_REMOTE_FILE=".github/azdops/${BRANCH_NAME}/remote.yml"
+          mkdir -p "${AZD_REMOTE_FILE%/*}"
+          cat <<EOF >$AZD_REMOTE_FILE
+          AZD_REMOTE_ENV_NAME: $(azd env get-value AZURE_ENV_NAME)
+          AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME: $(azd env get-value AZURE_STORAGE_ACCOUNT_NAME)
+          EOF
+          if ! test -r README.md; then
+          cat <<EOF >README.md
+          # ${ENV_NAME}
+
+          - AZD Ops README: [docs/README.md](docs/README.md)
+          - AZD Inputs File: [${AZD_INPUTS_FILE}](${AZD_INPUTS_FILE})
+          - AZD Remote File: [${AZD_REMOTE_FILE}](${AZD_REMOTE_FILE})
+          EOF
+          fi
+          echo "I: Updating README.md and $AZD_REMOTE_FILE"
+          git add README.md $AZD_REMOTE_FILE
+          if git diff --cached --exit-code --quiet; then
+            echo 'I: No changes to commit'
+          else
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            git commit -m "Update $AZD_REMOTE_FILE"
+            git push
+          fi

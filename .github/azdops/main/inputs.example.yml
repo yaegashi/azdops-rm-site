@@ -1,0 +1,13 @@
+AZURE_TENANT_ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+AZURE_CLIENT_ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+AZURE_SUBSCRIPTION_ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+AZURE_LOCATION: japaneast
+AZURE_PRINCIPAL_ID: ''
+AZURE_RESOURCE_GROUP_NAME: ''
+BASE_RESOURCE_GROUP_NAME: rg-BASE-main
+APP_ROOT_PATH: /
+DNS_ZONE_RESOURCE_GROUP_NAME: rg-dns
+DNS_ZONE_NAME: example.com
+DNS_RECORD_NAME: rmsite
+MS_TENANT_ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+MS_CLIENT_ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
