@@ -54,6 +54,13 @@ cmd_auth_gh() {
 }
 
 cmd_load() {
+	if test -z "$AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME" -o -z "$AZD_REMOTE_ENV_NAME"; then
+		BRANCH=$(git rev-parse --abbrev-ref HEAD)
+		AZD_REMOTE_FILE=".github/azdops/${BRANCH}/remote.yml"
+		if test -r "$AZD_REMOTE_FILE"; then
+			eval $(npx -y js-yaml "$AZD_REMOTE_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
+		fi
+	fi
 	if test -z "$AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME"; then
 		msg 'E: AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME is not set in the local env'
 		exit 1
