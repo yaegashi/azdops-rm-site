@@ -52,33 +52,51 @@ cmd_rmops_dbinit() {
 	EXPIRY=$(date -u -d '5 minutes' '+%Y-%m-%dT%H:%MZ')
 	SAS=$(az storage container generate-sas --only-show-errors --account-name $BASE_STORAGE_ACCOUNT_NAME --name secrets --permissions r --expiry $EXPIRY --https-only --output tsv)
 	URL="https://${BASE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/secrets"
-	# Pipe the shell script to the interactive shell in the container.
-	# `sleep 10` is needed to wait for the interactive shell to be ready.
-	# `script` tricks the Azure CLI into thinking it's in an interactive session.
-	# `--command 'sh -c cat|sh'` is a hack to force sh to be non-interactive.
-	{
-		sleep 10
-		cat <<-EOF
-		URL="$URL"
-		SAS="$SAS"
-		DB_ADMIN_USER=\$(curl -s "\$URL/DB_ADMIN_USER?\$SAS")
-		DB_ADMIN_PASS=\$(curl -s "\$URL/DB_ADMIN_PASS?\$SAS")
-		rmops dbinit "\$DB_ADMIN_USER" "\$DB_ADMIN_PASS"
-		EOF
-	} | run script -q -c "az containerapp exec $AZ_ARGS --command 'sh -c cat|sh'"
+	LOCAL_SCRIPT=$(mktemp /tmp/rmops-dbinit-XXXXXXXX.sh)
+	REMOTE_SCRIPT="wwwroot/tmp/${LOCAL_SCRIPT##*/}"
+	cat <<-EOF >$LOCAL_SCRIPT
+	URL="$URL"
+	SAS="$SAS"
+	DB_ADMIN_USER=\$(curl -s "\$URL/DB_ADMIN_USER?\$SAS")
+	DB_ADMIN_PASS=\$(curl -s "\$URL/DB_ADMIN_PASS?\$SAS")
+	rmops dbinit "\$DB_ADMIN_USER" "\$DB_ADMIN_PASS"
+	EOF
+	run az storage directory create --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -n wwwroot/tmp >/dev/null
+	run az storage file upload --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -p $REMOTE_SCRIPT --source $LOCAL_SCRIPT >/dev/null
+	run script -q -c "az containerapp exec $AZ_ARGS --command 'bash -e /home/site/$REMOTE_SCRIPT'"
 	rm -f typescript
 }
 
 cmd_rmops_setup() {
-	{
-		sleep 10
-		cat <<-EOF
-		rmops setup
-		rmops env set rails enable
-		echo "######## Admin Password ########"
-		tail -1 /home/site/wwwroot/etc/password.txt
-		EOF
-	} | run script -q -c "az containerapp exec $AZ_ARGS --command 'sh -c cat|sh'"
+	LOCAL_SCRIPT=$(mktemp /tmp/rmops-setup-XXXXXXXX.sh)
+	REMOTE_SCRIPT="wwwroot/tmp/${LOCAL_SCRIPT##*/}"
+	cat <<-EOF >$LOCAL_SCRIPT
+	rmops setup
+	rmops env set rails enable
+	echo "######## Admin Password ########"
+	tail -1 /home/site/wwwroot/etc/password.txt
+	EOF
+	run az storage directory create --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -n wwwroot/tmp >/dev/null
+	run az storage file upload --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -p $REMOTE_SCRIPT --source $LOCAL_SCRIPT >/dev/null
+	run script -q -c "az containerapp exec $AZ_ARGS --command 'bash -e /home/site/$REMOTE_SCRIPT'"
+	rm -f typescript
+}
+
+cmd_rmops_passwd() {
+	if test $# -lt 1; then
+		msg 'Specify username'
+		exit 1
+	fi
+	LOCAL_SCRIPT=$(mktemp /tmp/rmops-passwd-XXXXXXXX.sh)
+	REMOTE_SCRIPT="wwwroot/tmp/${LOCAL_SCRIPT##*/}"
+	cat <<-EOF >$LOCAL_SCRIPT
+	rmops passwd "$@"
+	echo "######## Admin Password ########"
+	tail -1 /home/site/wwwroot/etc/password.txt
+	EOF
+	run az storage directory create --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -n wwwroot/tmp >/dev/null
+	run az storage file upload --only-show-errors --account-name $AZURE_STORAGE_ACCOUNT_NAME -s data -p $REMOTE_SCRIPT --source $LOCAL_SCRIPT >/dev/null
+	run script -q -c "az containerapp exec $AZ_ARGS --command 'bash -e /home/site/$REMOTE_SCRIPT'"
 	rm -f typescript
 }
 
@@ -254,7 +272,8 @@ cmd_help() {
 	msg "  --container <name>         - Specify container name"
 	msg "Commands:"
 	msg "  rmops-dbinit               - RMOPS: initialize app database"
-	msg "  rmops-setup                - RMOPS: initial setup"
+	msg "  rmops-setup                - RMOPS: setup"
+	msg "  rmops-passwd               - RMOPS: passwd"
 	msg "  meid-redirect              - ME-ID: update app redirect URIs"
 	msg "  meid-secret                - ME-ID: create new client secret"
 	msg "  data-get <remote> <local>  - Data: download file"
@@ -331,6 +350,10 @@ case "$1" in
 	rmops-setup)
 		shift
 		cmd_rmops_setup "$@"
+		;;
+	rmops-passwd)
+		shift
+		cmd_rmops_passwd "$@"
 		;;
 	meid-redirect)
 		shift

@@ -42,6 +42,6 @@ jobs:
           set -x
           ./azdops.sh auth-config
           ./azdops.sh load --no-prompt
-          ./rmsiteops.sh rmops-dbinit
-          ./rmsiteops.sh rmops-setup
-          ./rmsiteops.sh aca-restart
+          ./rmsiteops.sh rmops-dbinit --no-prompt
+          ./rmsiteops.sh rmops-setup --no-prompt
+          ./rmsiteops.sh aca-restart --no-prompt
