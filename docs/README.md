@@ -27,10 +27,14 @@ You can bootstrap an AZD Ops repository by following these steps:
 
 1. Create a new **private** GitHub repository by importing from this repository. Forking is not recommended.
 2. Copy the AZD Ops settings from `.github/azdops/main/inputs.example.yml` to `.github/azdops/main/inputs.yml` and edit it. You can do this using the GitHub Web UI.
-3. Manually run the "AZD Ops Setup" workflow in the GitHub Actions Web UI. It will perform the following tasks:
+3. Manually run the "AZD Ops Provision" workflow in the GitHub Actions Web UI. It will perform the following tasks:
     - Provision Azure resources using AZD with the `inputs.yml` settings. By default, a resource group named `{repo_name}-{branch_name}` will be created.
     - Make an AZD remote environment in the Azure Storage Account and save the AZD env variables in it.
     - Update `README.md` and `.github/azdops/main/remote.yml`, then commit and push the changes to the repository.
 4. Manually run the "AZD Ops Build" workflow in the GitHub Actions Web UI. It will perform the following tasks:
     - Build a container image and push it to the container registry.
-    - Update the container app to deploy the container image.
+    - Deploy the container image to the container app
+5. Manually run the "AZD Ops New" workflow in the GitHub Actions Web UI. It will perform the following tasks:
+    - Initialize DB (rmops-dbinit)
+    - Perform DB migration and initial setup (rmops-setup)
+    - Restart the container app

@@ -1,4 +1,4 @@
-name: AZD Ops RM Setup
+name: AZD Ops New
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ env:
   AZD_REMOTE_FILE: .github/azdops/${{ github.ref_name }}/remote.yml
 
 jobs:
-  azdops-rmsetup:
+  azdops-new:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

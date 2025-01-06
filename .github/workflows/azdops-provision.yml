@@ -1,4 +1,4 @@
-name: AZD Ops Setup
+name: AZD Ops Provision
 
 on:
   workflow_dispatch:
@@ -11,22 +11,22 @@ env:
   AZD_INPUTS_FILE: .github/azdops/${{ github.ref_name }}/inputs.yml
 
 jobs:
-  azdops-setup:
+  azdops-provision:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Load AZD Ops inputs
+      - name: Load AZD Ops inputs.yml
         uses: actions-tools/yaml-outputs@v2
-        id: yaml
+        id: inputs
         with:
           file-path: ${{ env.AZD_INPUTS_FILE }}
       - name: Azure CLI
         uses: azure/login@v2
         with:
-          client-id: ${{ steps.yaml.outputs.AZURE_CLIENT_ID }}
-          tenant-id: ${{ steps.yaml.outputs.AZURE_TENANT_ID }}
-          subscription-id: ${{ steps.yaml.outputs.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: true
       - name: Azure Developer CLI
         uses: Azure/setup-azd@v2.0.0
@@ -73,7 +73,7 @@ jobs:
           EOF
           if ! test -r README.md; then
           cat <<EOF >README.md
-          # ${ENV_NAME}
+          # ${ENV_NAME} (dx2devops-rm-site instance)
 
           - AZD Ops README: [docs/README.md](docs/README.md)
           - AZD Inputs File: [${AZD_INPUTS_FILE}](${AZD_INPUTS_FILE})
