@@ -69,6 +69,19 @@ cmd_rmops_dbinit() {
 	rm -f typescript
 }
 
+cmd_rmops_setup() {
+	{
+		sleep 10
+		cat <<-EOF
+		rmops setup
+		rmops env set rails enable
+		echo "######## Admin Password ########"
+		tail -1 /home/site/wwwroot/etc/password.txt
+		EOF
+	} | run script -q -c "az containerapp exec $AZ_ARGS --command 'sh -c cat|sh'"
+	rm -f typescript
+}
+
 cmd_meid_redirect() {
 	APP_HOSTNAME=$(app_hostname)
 	URI="https://${APP_HOSTNAME}/.auth/login/aad/callback"
@@ -241,6 +254,7 @@ cmd_help() {
 	msg "  --container <name>         - Specify container name"
 	msg "Commands:"
 	msg "  rmops-dbinit               - RMOPS: initialize app database"
+	msg "  rmops-setup                - RMOPS: initial setup"
 	msg "  meid-redirect              - ME-ID: update app redirect URIs"
 	msg "  meid-secret                - ME-ID: create new client secret"
 	msg "  data-get <remote> <local>  - Data: download file"
@@ -313,6 +327,10 @@ case "$1" in
 	rmops-dbinit)
 		shift
 		cmd_rmops_dbinit "$@"
+		;;
+	rmops-setup)
+		shift
+		cmd_rmops_setup "$@"
 		;;
 	meid-redirect)
 		shift
