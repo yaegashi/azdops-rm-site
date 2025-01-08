@@ -7,7 +7,7 @@ eval $(azd env get-values)
 : ${RM_REPOSITORY=https://github.com/yaegashi/dx2devops-rm-docker}
 : ${RM_REF=main}
 : ${REDMINE_REPOSITORY=https://github.com/redmica/redmica}
-: ${REDMINE_REF=v3.0.3}
+: ${REDMINE_REF=v3.1.0}
 
 : ${NOPROMPT=false}
 : ${VERBOSE=false}
@@ -148,10 +148,8 @@ cmd_acr_token() {
 
 cmd_acr_push() {
 	if ! test -d rm; then
-		git clone $RM_REPOSITORY -b $RM_REF rm
-	fi
-	if ! test -d rm/redmine; then
-		git clone $REDMINE_REPOSITORY -b $REDMINE_REF rm/redmine
+		msg 'E: Directory rm not found; run rm-clone first'
+		exit 1
 	fi
 	IMAGE=${BASE_CONTAINER_REGISTRY_ENDPOINT}/${BASE_CONTAINER_REGISTRY_SCOPE_MAP_NAME}
 	TAG=$(date --utc +%Y%m%dT%H%M%SZ)
@@ -160,6 +158,36 @@ cmd_acr_push() {
 	run docker build rm -t ${APP_IMAGE}
 	run docker push ${APP_IMAGE}
 	run azd env set APP_IMAGE ${APP_IMAGE}
+}
+
+clone_plugin() {
+	dir=${3-$(basename $1)}
+	if test -d $dir; then
+		if test -d $dir/.git; then
+			run git -C $dir remote update
+			run git -C $dir checkout -q $2
+		fi
+	else
+		run git clone -q --filter blob:none $1 $dir
+		run git -C $dir checkout -q $2
+	fi
+}
+
+cmd_rm_clone() {
+	if ! test -d rm; then
+		run git clone $RM_REPOSITORY -b $RM_REF rm
+	fi
+	if ! test -d rm/redmine; then
+		run git clone $REDMINE_REPOSITORY -b $REDMINE_REF rm/redmine
+	fi
+	cd rm/plugins
+	clone_plugin https://github.com/agileware-jp/redmine_issue_templates 1.2.1
+	clone_plugin https://github.com/farend/redmine_message_customize v1.1.0
+	clone_plugin https://github.com/onozaty/redmine-view-customize v3.5.2 view_customize
+	clone_plugin https://github.com/redmica/redmica_ui_extension v0.4.0
+	clone_plugin https://github.com/redmica/redmine_ip_filter v1.1.0
+	clone_plugin https://github.com/redmica/redmine_issues_panel v1.1.2
+	clone_plugin https://github.com/vividtone/redmine_vividtone_my_page_blocks 1.3
 }
 
 cmd_aca_show() {
@@ -278,6 +306,7 @@ cmd_help() {
 	msg "  meid-secret                - ME-ID: create new client secret"
 	msg "  data-get <remote> <local>  - Data: download file"
 	msg "  data-put <remote> <local>  - Data: upload file"
+	msg "  rm-clone                   - RM: clone RM repository"
 	msg "  acr-token                  - ACR: update auth token"
 	msg "  acr-push                   - ACR: build and push container image"
 	msg "  aca-show                   - ACA: show app"
@@ -370,6 +399,10 @@ case "$1" in
 	data-put|upload)
 		shift
 		cmd_data_put "$@"
+		;;
+	rm-clone)
+		shift
+		cmd_rm_clone "$@"
 		;;
 	acr-token)
 		shift

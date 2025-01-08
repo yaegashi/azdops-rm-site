@@ -2,6 +2,23 @@ name: AZD Ops Build
 
 on:
   workflow_dispatch:
+    inputs:
+      RM_REPOSITORY:
+        description: 'RM repository'
+        required: true
+        default: https://github.com/yaegashi/dx2devops-rm-docker
+      RM_REF:
+        description: 'RM ref'
+        required: true
+        default: main
+      REDMINE_REPOSITORY:
+        description: 'REDMINE repository'
+        required: true
+        default: https://github.com/redmica/redmica
+      REDMINE_REF:
+        description: 'REDMINE ref'
+        required: true
+        default: main
 
 permissions:
   contents: write
@@ -10,6 +27,10 @@ permissions:
 env:
   AZD_INPUTS_FILE: .github/azdops/${{ github.ref_name }}/inputs.yml
   AZD_REMOTE_FILE: .github/azdops/${{ github.ref_name }}/remote.yml
+  RM_REPOSITORY: ${{ inputs.RM_REPOSITORY }}
+  RM_REF: ${{ inputs.RM_REF }}
+  REDMINE_REPOSITORY: ${{ inputs.REDMINE_REPOSITORY }}
+  REDMINE_REF: ${{ inputs.REDMINE_REF }}
 
 jobs:
   azdops-build:
@@ -44,7 +65,7 @@ jobs:
           set -x
           ./azdops.sh auth-config
           ./azdops.sh load --no-prompt
+          ./rmsiteops.sh rm-clone
           ./rmsiteops.sh acr-token
           ./rmsiteops.sh acr-push
           azd provision --no-prompt
-
