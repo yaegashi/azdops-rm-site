@@ -55,6 +55,7 @@ param msTenantId string
 param msClientId string
 @secure()
 param msClientSecret string
+param msAllowedGroupId string = ''
 
 var abbrs = loadJsonContent('./abbreviations.json')
 
@@ -301,6 +302,7 @@ module app './app/app.bicep' = {
     msTenantId: msTenantId
     msClientId: msClientId
     msClientSecretKV: '${keyVault.outputs.endpoint}secrets/MS-CLIENT-SECRET'
+    msAllowedGroupId: msAllowedGroupId
     tz: xTZ
   }
 }

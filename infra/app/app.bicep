@@ -14,6 +14,7 @@ param secretKeyBaseKV string
 param msTenantId string
 param msClientId string
 param msClientSecretKV string
+param msAllowedGroupId string = ''
 param userAssignedIdentityName string
 param tz string
 
@@ -162,7 +163,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
     configuration: {
       ingress: {
         external: true
-        targetPort: empty(appImage) ? 80: 8080
+        targetPort: empty(appImage) ? 80 : 8080
         customDomains: empty(appCustomDomainName)
           ? null
           : [
@@ -237,6 +238,11 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
             allowedAudiences: [
               'api://${msClientId}'
             ]
+            defaultAuthorizationPolicy: {
+              allowedPrincipals: {
+                groups: empty(msAllowedGroupId) ? null : [msAllowedGroupId]
+              }
+            }
           }
           login: {
             loginParameters: ['scope=openid profile email offline_access']

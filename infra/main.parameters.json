@@ -55,6 +55,9 @@
     },
     "msClientSecret": {
       "value": "$(secretOrRandomPassword ${AZURE_KEY_VAULT_NAME} MS-CLIENT-SECRET)"
+    },
+    "msAllowedGroupId": {
+      "value": "${MS_ALLOWED_GROUP_ID}"
     }
   }
 }

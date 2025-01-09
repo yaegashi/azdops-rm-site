@@ -65,6 +65,7 @@ jobs:
           azd env set DNS_RECORD_NAME $DNS_RECORD_NAME
           azd env set MS_TENANT_ID $MS_TENANT_ID
           azd env set MS_CLIENT_ID $MS_CLIENT_ID
+          azd env set MS_ALLOWED_GROUP_ID $MS_ALLOWED_GROUP_ID
           azd env set APP_CERTIFICATE_EXISTS false
           azd provision --no-prompt
           ./rmsiteops.sh meid-redirect --no-prompt
