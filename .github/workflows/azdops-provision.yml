@@ -9,6 +9,7 @@ permissions:
 
 env:
   AZD_INPUTS_FILE: .github/azdops/${{ github.ref_name }}/inputs.yml
+  AZD_REMOTE_FILE: .github/azdops/${{ github.ref_name }}/remote.yml
 
 jobs:
   azdops-provision:
@@ -21,6 +22,12 @@ jobs:
         id: inputs
         with:
           file-path: ${{ env.AZD_INPUTS_FILE }}
+      - name: Load AZD Ops remote.yml if exists
+        if: ${{ hashFiles(env.AZD_REMOTE_FILE) != '' }}
+        uses: actions-tools/yaml-outputs@v2
+        id: remote
+        with:
+          file-path: ${{ env.AZD_REMOTE_FILE }}
       - name: Azure CLI
         uses: azure/login@v2
         with:
@@ -38,7 +45,11 @@ jobs:
           BRANCH_NAME="${GITHUB_REF_NAME}"
           ENV_NAME="${REPO_NAME}-${BRANCH_NAME}"
           ./azdops.sh auth-config
-          azd env new ${ENV_NAME}
+          if test -n "$AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME" -a "$AZD_REMOTE_ENV_NAME" = "$ENV_NAME"; then
+            ./azdops.sh load --no-prompt
+          else
+            azd env new $ENV_NAME
+          fi
           azd env set AZURE_SUBSCRIPTION_ID $AZURE_SUBSCRIPTION_ID
           azd env set AZURE_LOCATION $AZURE_LOCATION
           if test -n "$AZURE_PRINCIPAL_ID"; then
@@ -54,6 +65,7 @@ jobs:
           azd env set DNS_RECORD_NAME $DNS_RECORD_NAME
           azd env set MS_TENANT_ID $MS_TENANT_ID
           azd env set MS_CLIENT_ID $MS_CLIENT_ID
+          azd env set APP_CERTIFICATE_EXISTS false
           azd provision --no-prompt
           ./rmsiteops.sh meid-redirect --no-prompt
           ./rmsiteops.sh meid-secret --no-prompt
@@ -65,7 +77,6 @@ jobs:
           BRANCH_NAME="${GITHUB_REF_NAME}"
           ENV_NAME="${REPO_NAME}-${BRANCH_NAME}"
           ./azdops.sh save --no-prompt
-          AZD_REMOTE_FILE=".github/azdops/${BRANCH_NAME}/remote.yml"
           mkdir -p "${AZD_REMOTE_FILE%/*}"
           cat <<EOF >$AZD_REMOTE_FILE
           AZD_REMOTE_ENV_NAME: $(azd env get-value AZURE_ENV_NAME)
