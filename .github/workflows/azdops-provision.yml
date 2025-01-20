@@ -82,6 +82,7 @@ jobs:
           cat <<EOF >$AZD_REMOTE_FILE
           AZD_REMOTE_ENV_NAME: $(azd env get-value AZURE_ENV_NAME)
           AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME: $(azd env get-value AZURE_STORAGE_ACCOUNT_NAME)
+          AZD_REMOTE_ENV_KEY_VAULT_NAME: $(azd env get-value AZURE_KEY_VAULT_NAME)
           EOF
           if ! test -r README.md; then
           cat <<EOF >README.md

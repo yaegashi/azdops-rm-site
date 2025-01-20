@@ -46,7 +46,39 @@ cmd_auth_config() {
 }
 
 cmd_auth_az() {
-	run az login "$@"
+	BRANCH=$(git rev-parse --abbrev-ref HEAD)
+	AZD_INPUTS_FILE=".github/azdops/${BRANCH}/inputs.yml"
+	AZD_REMOTE_FILE=".github/azdops/${BRANCH}/remote.yml"
+	eval $(npx -y js-yaml "$AZD_INPUTS_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
+	eval $(npx -y js-yaml "$AZD_REMOTE_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
+
+	AZURE_TEMP_DIR=$(mktemp -d)
+	export AZURE_CONFIG_DIR=$AZURE_TEMP_DIR
+	msg "Logging in with Azure CLI as user (saved in $AZURE_CONFIG_DIR)"
+	run az config set --only-show-errors core.login_experience_v2=off
+	run az login -t=$AZURE_TENANT_ID >/dev/null
+	run az account set -s $AZURE_SUBSCRIPTION_ID
+	run az account show
+	UPN=$(run az account show --query user.name -o tsv)
+	run az keyvault set-policy -n $AZD_REMOTE_ENV_KEY_VAULT_NAME --secret-permissions all purge --certificate-permissions all purge --upn $UPN -o none
+
+	PASSWORD=$(run az keyvault secret show --vault-name $AZD_REMOTE_ENV_KEY_VAULT_NAME --name AZURE-CLIENT-SECRET --query value -o tsv || true)
+	if test -z "$PASSWORD"; then
+		msg "Creating new credentials for the app $AZURE_CLIENT_ID"
+		DISPLAY_NAME="$AZD_REMOTE_ENV_NAME $AZD_REMOTE_ENV_KEY_VAULT_NAME $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		PASSWORD=$(run az ad app credential reset --only-show-errors --id $AZURE_CLIENT_ID --append --display-name "$DISPLAY_NAME" --end-date 2299-12-31 --query password --output tsv)
+		echo -n "$PASSWORD" | run az keyvault secret set --vault-name $AZD_REMOTE_ENV_KEY_VAULT_NAME --name AZURE-CLIENT-SECRET --file /dev/stdin -o none
+		run sleep 10
+	fi
+
+	msg "Deleting the temporary directory"
+	run rm -rf $AZURE_TEMP_DIR
+
+	msg "Logging in with Azure CLI as service principal"
+	unset AZURE_CONFIG_DIR
+	echo -n "$PASSWORD" | run az login --service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID -p @/dev/stdin -o none
+	run az account set -s $AZURE_SUBSCRIPTION_ID
+	run az account show
 }
 
 cmd_auth_gh() {
