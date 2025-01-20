@@ -30,8 +30,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
     template: {
       containers: [
         {
-          name: 'hellowrold'
-          image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+          name: 'quickstart'
+          image: 'mcr.microsoft.com/k8se/quickstart:latest'
         }
       ]
     }

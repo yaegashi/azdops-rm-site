@@ -62,8 +62,8 @@ resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2023
 
 var containers0 = [
   {
-    name: 'hello-world'
-    image: 'mcr.microsoft.com/azuredocs/aci-helloworld:latest'
+    name: 'redmine'
+    image: 'mcr.microsoft.com/k8se/quickstart:latest'
   }
 ]
 
