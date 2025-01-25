@@ -8,6 +8,7 @@ permissions:
   id-token: write
 
 env:
+  AZDOPS_TEMPLATE: azdops-rm-site
   AZD_INPUTS_FILE: .github/azdops/${{ github.ref_name }}/inputs.yml
   AZD_REMOTE_FILE: .github/azdops/${{ github.ref_name }}/remote.yml
 
@@ -74,6 +75,7 @@ jobs:
         shell: bash
         run: |
           set -x
+          GITHUB_README_FILE=.github/README.md
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
           BRANCH_NAME="${GITHUB_REF_NAME}"
           ENV_NAME="${REPO_NAME}-${BRANCH_NAME}"
@@ -84,17 +86,17 @@ jobs:
           AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME: $(azd env get-value AZURE_STORAGE_ACCOUNT_NAME)
           AZD_REMOTE_ENV_KEY_VAULT_NAME: $(azd env get-value AZURE_KEY_VAULT_NAME)
           EOF
-          if ! test -r README.md; then
-          cat <<EOF >README.md
-          # ${ENV_NAME} (dx2devops-rm-site instance)
+          if ! test -r $GITHUB_README_FILE; then
+          cat <<EOF >$GITHUB_README_FILE
+          # ${ENV_NAME} (${AZDOPS_TEMPLATE} instance)
 
-          - AZD Ops README: [docs/README.md](docs/README.md)
+          - AZD Ops README: [../README.md](../README.md)
           - AZD Inputs File: [${AZD_INPUTS_FILE}](${AZD_INPUTS_FILE})
           - AZD Remote File: [${AZD_REMOTE_FILE}](${AZD_REMOTE_FILE})
           EOF
           fi
-          echo "I: Updating README.md and $AZD_REMOTE_FILE"
-          git add README.md $AZD_REMOTE_FILE
+          echo "I: Updating $GITHUB_README_FILE and $AZD_REMOTE_FILE"
+          git add $GITHUB_README_FILE $AZD_REMOTE_FILE
           if git diff --cached --exit-code --quiet; then
             echo 'I: No changes to commit'
           else

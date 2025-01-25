@@ -1,6 +1,6 @@
 {
-	"image": "ghcr.io/yaegashi/dx2devops-rm-site:latest",
-    "customizations": {
+	"image": "ghcr.io/yaegashi/azdops-rm-site/devcontainer:latest",
+	"customizations": {
 		"vscode": {
 			"extensions": [
 				"ms-azuretools.vscode-bicep",
