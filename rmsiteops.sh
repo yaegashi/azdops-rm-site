@@ -4,7 +4,7 @@ set -e
 
 eval $(azd env get-values)
 
-: ${RM_REPOSITORY=https://github.com/yaegashi/dx2devops-rm-docker}
+: ${RM_REPOSITORY=https://github.com/yaegashi/azdops-rm-docker}
 : ${RM_REF=main}
 : ${REDMINE_REPOSITORY=https://github.com/redmica/redmica}
 : ${REDMINE_REF=v3.1.0}

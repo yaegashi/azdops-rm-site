@@ -6,7 +6,7 @@ on:
       RM_REPOSITORY:
         description: 'RM repository'
         required: true
-        default: https://github.com/yaegashi/dx2devops-rm-docker
+        default: https://github.com/yaegashi/azdops-rm-docker
       RM_REF:
         description: 'RM ref'
         required: true
