@@ -61,12 +61,15 @@ jobs:
           fi
           azd env set BASE_RESOURCE_GROUP_NAME $BASE_RESOURCE_GROUP_NAME
           azd env set APP_ROOT_PATH $APP_ROOT_PATH
+          azd env set DNS_ZONE_SUBSCRIPTION_ID $DNS_ZONE_SUBSCRIPTION_ID
           azd env set DNS_ZONE_RESOURCE_GROUP_NAME $DNS_ZONE_RESOURCE_GROUP_NAME
           azd env set DNS_ZONE_NAME $DNS_ZONE_NAME
           azd env set DNS_RECORD_NAME $DNS_RECORD_NAME
           azd env set MS_TENANT_ID $MS_TENANT_ID
           azd env set MS_CLIENT_ID $MS_CLIENT_ID
-          azd env set MS_ALLOWED_GROUP_ID $MS_ALLOWED_GROUP_ID
+          if test -n "$MS_ALLOWED_GROUP_ID"; then
+            azd env set MS_ALLOWED_GROUP_ID $MS_ALLOWED_GROUP_ID
+          fi
           azd env set APP_CERTIFICATE_EXISTS false
           azd provision --no-prompt
           ./rmsiteops.sh meid-redirect --no-prompt

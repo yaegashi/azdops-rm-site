@@ -45,6 +45,8 @@ param tz string = 'Asia/Tokyo'
 
 param baseResourceGroupName string
 
+param dnsZoneSubscriptionId string = subscription().subscriptionId
+
 param dnsZoneResourceGroupName string = ''
 
 param dnsZoneName string = ''
@@ -84,6 +86,7 @@ var dnsEnable = !empty(dnsZoneResourceGroupName) && !empty(dnsZoneName) && !empt
 var appCustomDomainName = dnsEnable ? '${dnsRecordName}.${dnsZoneName}' : ''
 
 resource dnsZoneRG 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (dnsEnable && !appCertificateExists) {
+  scope: subscription(dnsZoneSubscriptionId)
   name: dnsZoneResourceGroupName
 }
 
