@@ -71,7 +71,6 @@ var containers1 = [
   {
     name: 'redmine'
     image: appImage
-    args: ['rails']
     env: [
       { name: 'TZ', value: tz }
       { name: 'RAILS_ENV', value: 'production' }
@@ -103,46 +102,6 @@ var containers1 = [
         volumeName: 'data'
         subPath: 'wwwroot'
         mountPath: '/home/site/wwwroot'
-      }
-    ]
-  }
-  {
-    name: 'sidekiq'
-    image: appImage
-    args: ['sidekiq']
-    env: [
-      { name: 'TZ', value: tz }
-      { name: 'RAILS_ENV', value: 'production' }
-      { name: 'DATABASE_URL', secretRef: 'database-url' }
-    ]
-    resources: {
-      cpu: json('0.25')
-      memory: '0.5Gi'
-    }
-    volumeMounts: [
-      {
-        volumeName: 'data'
-        subPath: 'wwwroot'
-        mountPath: '/home/site/wwwroot'
-      }
-    ]
-  }
-  {
-    name: 'redis'
-    image: 'redis'
-    args: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
-    env: [
-      { name: 'TZ', value: tz }
-    ]
-    resources: {
-      cpu: json('0.25')
-      memory: '0.5Gi'
-    }
-    volumeMounts: [
-      {
-        volumeName: 'data'
-        subPath: 'redis'
-        mountPath: '/data'
       }
     ]
   }
