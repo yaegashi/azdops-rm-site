@@ -83,7 +83,7 @@ module registryToken './app/registry-token.bicep' = {
 }
 
 var dnsEnable = !empty(dnsZoneResourceGroupName) && !empty(dnsZoneName) && !empty(dnsRecordName)
-var appCustomDomainName = dnsEnable ? '${dnsRecordName}.${dnsZoneName}' : ''
+var dnsDomainName = !dnsEnable ? '' : dnsRecordName == '@' ? dnsZoneName : '${dnsRecordName}.${dnsZoneName}'
 
 resource dnsZoneRG 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (dnsEnable && !appCertificateExists) {
   scope: subscription(dnsZoneSubscriptionId)
@@ -95,18 +95,28 @@ module dnsTXT './app/dns-txt.bicep' = if (dnsEnable && !appCertificateExists) {
   scope: dnsZoneRG
   params: {
     dnsZoneName: dnsZoneName
-    dnsRecordName: 'asuid.${dnsRecordName}'
+    dnsRecordName: dnsRecordName == '@' ? 'asuid' : 'asuid.${dnsRecordName}'
     txt: env.outputs.customDomainVerificationId
   }
 }
 
-module dnsCNAME './app/dns-cname.bicep' = if (dnsEnable && !appCertificateExists) {
+module dnsCNAME './app/dns-cname.bicep' = if (dnsEnable && !appCertificateExists && dnsRecordName != '@') {
   name: 'dnsCNAME'
   scope: dnsZoneRG
   params: {
     dnsZoneName: dnsZoneName
     dnsRecordName: dnsRecordName
     cname: appPrep.outputs.fqdn
+  }
+}
+
+module dnsA './app/dns-a.bicep' = if (dnsEnable && !appCertificateExists && dnsRecordName == '@') {
+  name: 'dnsA'
+  scope: dnsZoneRG
+  params: {
+    dnsZoneName: dnsZoneName
+    dnsRecordName: dnsRecordName
+    a: env.outputs.staticIp
   }
 }
 
@@ -279,7 +289,7 @@ module appPrep './app/app-prep.bicep' = if (dnsEnable && !appCertificateExists) 
     tags: tags
     containerAppsEnvironmentName: env.outputs.name
     containerAppName: xContainerAppName
-    appCustomDomainName: appCustomDomainName
+    dnsDomainName: dnsDomainName
   }
 }
 
@@ -299,7 +309,7 @@ module app './app/app.bicep' = {
     userAssignedIdentityName: userAssignedIdentity.outputs.name
     appImage: appImage
     appRootPath: appRootPath
-    appCustomDomainName: appCustomDomainName
+    dnsDomainName: dnsDomainName
     databaseUrlKV: '${keyVault.outputs.endpoint}secrets/DATABASE-URL'
     secretKeyBaseKV: '${keyVault.outputs.endpoint}secrets/SECRET-KEY-BASE'
     msTenantId: msTenantId
@@ -340,7 +350,7 @@ output AZURE_CONTAINER_APPS_APP_NAME string = app.outputs.name
 output AZURE_CONTAINER_APPS_JOB_NAME string = job.outputs.name
 output AZURE_STORAGE_ACCOUNT_NAME string = storageAccount.outputs.name
 output AZURE_LOG_ANALYTICS_WORKSPACE_CUSTOMER_ID string = monitoring.outputs.logAnalyticsWorkspaceCustomerId
-output APP_CERTIFICATE_EXISTS bool = !empty(appCustomDomainName)
+output APP_CERTIFICATE_EXISTS bool = !empty(dnsDomainName)
 output BASE_CONTAINER_REGISTRY_NAME string = baseRG.tags.CONTAINER_REGISTRY_NAME
 output BASE_CONTAINER_REGISTRY_ENDPOINT string = baseRG.tags.CONTAINER_REGISTRY_ENDPOINT
 output BASE_CONTAINER_REGISTRY_SCOPE_MAP_NAME string = registryToken.outputs.scopeMapName

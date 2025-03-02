@@ -8,7 +8,9 @@ param containerRegistryUsername string
 param containerRegistryPasswordKV string
 param appImage string
 param appRootPath string
-param appCustomDomainName string = ''
+param dnsDomainName string = ''
+@allowed(['CNAME', 'TXT', 'HTTP'])
+param domainControlValidation string = 'CNAME'
 param databaseUrlKV string
 param secretKeyBaseKV string
 param msTenantId string
@@ -49,16 +51,24 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-08-01-
   }
 }
 
-resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2023-08-01-preview' = if (!empty(appCustomDomainName)) {
+resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2023-08-01-preview' = if (!empty(dnsDomainName)) {
   parent: containerAppsEnvironment
-  name: 'cert-${appCustomDomainName}'
+  name: 'cert-${dnsDomainName}'
   location: location
   tags: tags
   properties: {
-    subjectName: appCustomDomainName
-    domainControlValidation: 'CNAME'
+    subjectName: dnsDomainName
+    domainControlValidation: domainControlValidation
   }
 }
+
+var customDomains = [
+  {
+    name: dnsDomainName
+    certificateId: certificate.id
+    bindingType: 'SniEnabled'
+  }
+]
 
 var containers0 = [
   {
@@ -123,15 +133,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
       ingress: {
         external: true
         targetPort: empty(appImage) ? 80 : 8080
-        customDomains: empty(appCustomDomainName)
-          ? null
-          : [
-              {
-                name: appCustomDomainName
-                certificateId: certificate.id
-                bindingType: 'SniEnabled'
-              }
-            ]
+        customDomains: empty(dnsDomainName) ? null : customDomains
       }
       registries: [
         {

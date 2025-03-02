@@ -1,6 +1,6 @@
 param containerAppsEnvironmentName string
 param containerAppName string
-param appCustomDomainName string
+param dnsDomainName string
 param location string = resourceGroup().location
 param tags object = {}
 
@@ -20,7 +20,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-08-01-preview' = {
         targetPort: 8080
         customDomains: [
           {
-            name: appCustomDomainName
+            name: dnsDomainName
             certificateId: null
             bindingType: 'Disabled'
           }
