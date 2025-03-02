@@ -30,12 +30,10 @@ jobs:
         with:
           file-path: ${{ env.AZD_REMOTE_FILE }}
       - name: Azure CLI
-        uses: azure/login@v2
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-          enable-AzPSSession: true
+        id: azure-cli
+        uses: ./.github/actions/azure-cli
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
       - name: Azure Developer CLI
         uses: Azure/setup-azd@v2.0.0
       - name: AZD Provision
@@ -93,9 +91,9 @@ jobs:
           cat <<EOF >$GITHUB_README_FILE
           # ${ENV_NAME} (${AZDOPS_TEMPLATE} instance)
 
-          - AZD Ops README: [../README.md](../README.md)
-          - AZD Inputs File: [${AZD_INPUTS_FILE}](${AZD_INPUTS_FILE})
-          - AZD Remote File: [${AZD_REMOTE_FILE}](${AZD_REMOTE_FILE})
+          - AZD Ops README: [README.md](../README.md)
+          - AZD Inputs File: [${AZD_INPUTS_FILE}](../${AZD_INPUTS_FILE})
+          - AZD Remote File: [${AZD_REMOTE_FILE}](../${AZD_REMOTE_FILE})
           EOF
           fi
           echo "I: Updating $GITHUB_README_FILE and $AZD_REMOTE_FILE"
