@@ -106,3 +106,12 @@ jobs:
             git commit -m "Update $AZD_REMOTE_FILE"
             git push
           fi
+      - name: AZD Azure Client Secret
+        shell: bash
+        run: |
+          set -x
+          if test -n "$AZURE_CLIENT_SECRET"; then
+            ./azdops.sh auth-az-secret
+          fi
+        env:
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
