@@ -46,9 +46,8 @@ cmd_auth_config() {
 }
 
 cmd_auth_az() {
-	BRANCH=$(git rev-parse --abbrev-ref HEAD)
-	AZD_INPUTS_FILE=".github/azdops/${BRANCH}/inputs.yml"
-	AZD_REMOTE_FILE=".github/azdops/${BRANCH}/remote.yml"
+	AZD_INPUTS_FILE=".github/azdops/inputs.yml"
+	AZD_REMOTE_FILE=".github/azdops/remote.yml"
 	eval $(npx -y js-yaml "$AZD_INPUTS_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
 	eval $(npx -y js-yaml "$AZD_REMOTE_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
 
@@ -80,9 +79,8 @@ cmd_auth_az() {
 }
 
 cmd_auth_az_secret() {
-	BRANCH=$(git rev-parse --abbrev-ref HEAD)
-	AZD_INPUTS_FILE=".github/azdops/${BRANCH}/inputs.yml"
-	AZD_REMOTE_FILE=".github/azdops/${BRANCH}/remote.yml"
+	AZD_INPUTS_FILE=".github/azdops/inputs.yml"
+	AZD_REMOTE_FILE=".github/azdops/remote.yml"
 	eval $(npx -y js-yaml "$AZD_INPUTS_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
 	eval $(npx -y js-yaml "$AZD_REMOTE_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
 
@@ -103,8 +101,7 @@ cmd_auth_gh() {
 
 cmd_load() {
 	if test -z "$AZD_REMOTE_ENV_STORAGE_ACCOUNT_NAME" -o -z "$AZD_REMOTE_ENV_NAME"; then
-		BRANCH=$(git rev-parse --abbrev-ref HEAD)
-		AZD_REMOTE_FILE=".github/azdops/${BRANCH}/remote.yml"
+		AZD_REMOTE_FILE=".github/azdops/remote.yml"
 		if test -r "$AZD_REMOTE_FILE"; then
 			eval $(npx -y js-yaml "$AZD_REMOTE_FILE" | jq -r 'to_entries|map("\(.key)=\(.value)")|.[]')
 		fi
