@@ -32,7 +32,7 @@ jobs:
           set -x
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
           BRANCH_NAME="${GITHUB_REF_NAME}"
-          ENV_NAME="${REPO_NAME}-${BRANCH_NAME}"
+          ENV_NAME="${REPO_NAME}_${BRANCH_NAME}"
           if test -z "$AZURE_RESOURCE_GROUP_NAME"; then
             AZURE_RESOURCE_GROUP_NAME="${ENV_NAME}"
           fi
