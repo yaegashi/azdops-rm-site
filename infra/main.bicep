@@ -294,7 +294,7 @@ module appPrep './app/app-prep.bicep' = if (dnsEnable && !appCertificateExists) 
 }
 
 module app './app/app.bicep' = {
-  dependsOn: [KeyVaultAccessUserAssignedIdentity, dnsCNAME]
+  dependsOn: [KeyVaultAccessUserAssignedIdentity, dnsCNAME, dnsA]
   name: 'app'
   scope: rg
   params: {
@@ -310,6 +310,7 @@ module app './app/app.bicep' = {
     appImage: appImage
     appRootPath: appRootPath
     dnsDomainName: dnsDomainName
+    domainControlValidation: dnsRecordName == '@' ? 'HTTP' : 'CNAME'
     databaseUrlKV: '${keyVault.outputs.endpoint}secrets/DATABASE-URL'
     secretKeyBaseKV: '${keyVault.outputs.endpoint}secrets/SECRET-KEY-BASE'
     msTenantId: msTenantId
